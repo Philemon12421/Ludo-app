@@ -3,102 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ludo App</title>
+    <meta name="description" content="Play Ludo Online or Offline. Experience a beautifully designed 3D glassy style Ludo game with milestones and roadmap.">
+    <meta name="keywords" content="Ludo, Online Ludo, Board Game, 3D Ludo, Glassmorphism, Play Ludo">
+    <meta name="author" content="Ludo Studio">
+    <title>3D Glassy Ludo Game</title>
     <link rel="stylesheet" href="index.css">
 </head>
 <body>
-<div class="ludoContainer">
-   <div id="ludoBoard">
-        <div id="red-Board" class="board"></div>
-        <div id="green-path" class="verticalPath">
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
+    <!-- Main Menu -->
+    <div id="main-menu" class="screen active">
+        <h1 class="glass-title">Ludo</h1>
+        <div class="menu-container glass-panel">
+            <button id="btn-offline" class="glass-btn">Offline (vs Computer)</button>
+            <button id="btn-online" class="glass-btn">Online Match</button>
+            <button id="btn-roadmap" class="glass-btn">Roadmap (Milestones)</button>
         </div>
-        <div id="green-Board" class="board"></div>
-        <div id="red-Path" class="horizontalPath">
-             <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-        </div>
-        <div id="win-zone"></div>
-        <div id="yellow-Path" class="horizonatalPath">
- <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-        </div>
-           <div id="blue-Board" class="board"></div>
-           <div id="blue-path" class="verticalPath">
-             <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-            <div class="ludoBox"></div>
-           </div>
-                 <div id="yellow-Board" class="board">
-                    
-                 </div>
-       
     </div>
-</div>
-    <script src="/index.js"></script>
+
+    <!-- Roadmap / Milestones (Duolingo style) -->
+    <div id="roadmap-screen" class="screen hidden">
+        <div class="glass-header">
+            <button id="btn-back-from-roadmap" class="glass-btn small-btn">Back</button>
+            <h2>Milestones</h2>
+        </div>
+        <div class="roadmap-container">
+            <!-- Dynamically generated levels -->
+        </div>
+    </div>
+
+    <!-- Matchmaking Screen -->
+    <div id="matchmaking-screen" class="screen hidden">
+        <div class="matchmaking-container glass-panel">
+            <h2>Finding Players...</h2>
+            <div class="spinner"></div>
+            <button id="btn-cancel-matchmaking" class="glass-btn">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen hidden">
+        <div class="glass-header">
+            <button id="btn-back-to-menu" class="glass-btn small-btn">Quit</button>
+            <div id="turn-indicator" class="glass-panel">Player 1's Turn</div>
+        </div>
+
+        <div class="ludo-board glass-board">
+            <!-- Red Base -->
+            <div class="base red-base glass-base" id="base-red">
+                <div class="token-container"></div>
+            </div>
+            <!-- Top Path -->
+            <div class="path top-path" id="path-top"></div>
+            <!-- Green Base -->
+            <div class="base green-base glass-base" id="base-green">
+                <div class="token-container"></div>
+            </div>
+
+            <!-- Left Path -->
+            <div class="path left-path" id="path-left"></div>
+            <!-- Home / Center -->
+            <div class="home glass-home">
+                <div class="home-triangle top-triangle"></div>
+                <div class="home-triangle right-triangle"></div>
+                <div class="home-triangle bottom-triangle"></div>
+                <div class="home-triangle left-triangle"></div>
+            </div>
+            <!-- Right Path -->
+            <div class="path right-path" id="path-right"></div>
+
+            <!-- Blue Base -->
+            <div class="base blue-base glass-base" id="base-blue">
+                <div class="token-container"></div>
+            </div>
+            <!-- Bottom Path -->
+            <div class="path bottom-path" id="path-bottom"></div>
+            <!-- Yellow Base -->
+            <div class="base yellow-base glass-base" id="base-yellow">
+                <div class="token-container"></div>
+            </div>
+
+            <!-- Tokens will be dynamically added to the board -->
+            <div id="tokens-layer"></div>
+        </div>
+
+        <div class="controls-container glass-panel">
+            <div id="dice-container" class="dice-container">
+                <div id="dice" class="dice glass-dice">1</div>
+            </div>
+            <button id="btn-roll" class="glass-btn">Roll Dice</button>
+        </div>
+    </div>
+
+    <!-- Winner Modal -->
+    <div id="winner-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h2 id="winner-text">Player Wins!</h2>
+            <button id="btn-play-again" class="glass-btn">Play Again</button>
+            <button id="btn-winner-menu" class="glass-btn">Main Menu</button>
+        </div>
+    </div>
+
+    <script src="index.js"></script>
 </body>
 </html>
