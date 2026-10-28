@@ -31,7 +31,7 @@ A classic Ludo game that runs in your browser. Play against the computer, pass t
 No build step and no dependencies. Serve the folder with any static server:
 
 ```bash
-git clone https://github.com/Philemon12421/Uncomplete-Ludo-app.git
+git clone https://github.com/Philemon12421/Ludo-app.git
 cd Uncomplete-Ludo-app
 
 # Option 1: Python
