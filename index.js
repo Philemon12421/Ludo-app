@@ -1,500 +1,730 @@
-// Screen Elements
-const mainMenu = document.getElementById('main-menu');
-const roadmapScreen = document.getElementById('roadmap-screen');
-const matchmakingScreen = document.getElementById('matchmaking-screen');
-const gameScreen = document.getElementById('game-screen');
-const winnerModal = document.getElementById('winner-modal');
+'use strict';
 
-// Buttons
-const btnOffline = document.getElementById('btn-offline');
-const btnOnline = document.getElementById('btn-online');
-const btnRoadmap = document.getElementById('btn-roadmap');
-const btnBackFromRoadmap = document.getElementById('btn-back-from-roadmap');
-const btnCancelMatchmaking = document.getElementById('btn-cancel-matchmaking');
-const btnBackToMenu = document.getElementById('btn-back-to-menu');
-const btnWinnerMenu = document.getElementById('btn-winner-menu');
-const btnPlayAgain = document.getElementById('btn-play-again');
+/* =========================================================
+   Ludoka – classic Ludo
+   ========================================================= */
 
-// Game State
-let currentMode = null; // 'offline' or 'online'
-let currentPlayer = 0; // 0: Red, 1: Green, 2: Yellow, 3: Blue
-const players = ['Red', 'Green', 'Yellow', 'Blue'];
-let isGameActive = false;
+/* ---------- Small helpers ---------- */
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
-// Roadmap State
-let unlockedLevel = 1;
-const totalLevels = 10;
+function el(tag, className) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    return node;
+}
 
-// Navigation Logic
+/* ---------- Storage + cookie consent ---------- */
+const CONSENT_KEY = 'ludoka.consent';   // essential: remembers the banner choice
+const PROGRESS_KEY = 'ludoka.level';    // optional: only saved if the player accepts
+
+const store = {
+    get(key) {
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+    },
+    set(key, value) {
+        try { localStorage.setItem(key, value); } catch (e) { /* storage blocked */ }
+    },
+    remove(key) {
+        try { localStorage.removeItem(key); } catch (e) { /* storage blocked */ }
+    }
+};
+
+let consent = store.get(CONSENT_KEY); // 'all' | 'essential' | null
+
+/* ---------- Screens ---------- */
+const mainMenu = $('main-menu');
+const roadmapScreen = $('roadmap-screen');
+const matchmakingScreen = $('matchmaking-screen');
+const gameScreen = $('game-screen');
+const winnerModal = $('winner-modal');
+
 function showScreen(screen) {
-    document.querySelectorAll('.screen').forEach(s => {
+    document.querySelectorAll('.screen').forEach((s) => {
         s.classList.add('hidden');
         s.classList.remove('active');
     });
     screen.classList.remove('hidden');
     screen.classList.add('active');
+    window.scrollTo(0, 0);
 }
 
-btnOffline.addEventListener('click', () => {
-    currentMode = 'offline';
-    startGame();
-});
+/* ---------- Game constants ---------- */
+const COLORS = ['Red', 'Green', 'Yellow', 'Blue'];            // clockwise from top-left
+const START = { Red: 0, Green: 13, Yellow: 26, Blue: 39 };    // ring index of each start square
+const SAFE = new Set([0, 8, 13, 21, 26, 34, 39, 47]);         // start squares + star squares
+const RING_END = 50;   // last ring position a token visits (positions 0..50)
+const FINISH = 56;     // 51..55 = home column, 56 = centre
+const GRID = 15;
 
-btnOnline.addEventListener('click', () => {
-    currentMode = 'online';
-    showScreen(matchmakingScreen);
-    // Mock Matchmaking Sequence
-    setTimeout(() => {
-        if (currentMode === 'online') {
-            startGame();
-        }
-    }, 3000); // Wait 3 seconds then start game
-});
-
-btnCancelMatchmaking.addEventListener('click', () => {
-    currentMode = null;
-    showScreen(mainMenu);
-});
-
-btnRoadmap.addEventListener('click', () => {
-    renderRoadmap();
-    showScreen(roadmapScreen);
-});
-
-btnBackFromRoadmap.addEventListener('click', () => {
-    showScreen(mainMenu);
-});
-
-btnBackToMenu.addEventListener('click', () => {
-    isGameActive = false;
-    showScreen(mainMenu);
-});
-
-btnWinnerMenu.addEventListener('click', () => {
-    winnerModal.classList.add('hidden');
-    isGameActive = false;
-    showScreen(mainMenu);
-});
-
-btnPlayAgain.addEventListener('click', () => {
-    winnerModal.classList.add('hidden');
-    startGame();
-});
-
-// Roadmap Logic
-function renderRoadmap() {
-    const container = document.querySelector('.roadmap-container');
-    container.innerHTML = '';
-    for (let i = totalLevels; i >= 1; i--) {
-        const node = document.createElement('div');
-        node.classList.add('roadmap-node');
-        node.textContent = i;
-
-        if (i < unlockedLevel) {
-            node.classList.add('completed');
-        } else if (i === unlockedLevel) {
-            node.classList.add('current');
-            node.style.boxShadow = '0 0 20px rgba(255, 255, 255, 0.8)';
-        } else {
-            node.classList.add('locked');
-        }
-
-        // Add pseudo-random horizontal offset for curved path
-        const offset = Math.sin(i * 1.5) * 60;
-        node.style.transform = `translateX(${offset}px)`;
-
-        container.appendChild(node);
-    }
-}
-
-// --- Ludo Game Logic ---
-let diceValue = 1;
-let canRoll = true;
-const tokens = {
-    Red: [ {id: 'R1', pos: -1}, {id: 'R2', pos: -1}, {id: 'R3', pos: -1}, {id: 'R4', pos: -1} ],
-    Green: [ {id: 'G1', pos: -1}, {id: 'G2', pos: -1}, {id: 'G3', pos: -1}, {id: 'G4', pos: -1} ],
-    Yellow: [ {id: 'Y1', pos: -1}, {id: 'Y2', pos: -1}, {id: 'Y3', pos: -1}, {id: 'Y4', pos: -1} ],
-    Blue: [ {id: 'B1', pos: -1}, {id: 'B2', pos: -1}, {id: 'B3', pos: -1}, {id: 'B4', pos: -1} ]
-};
-
-// Safe zones on the common path
-const safeZones = [0, 8, 13, 21, 26, 34, 39, 47];
-
-// Paths definition for 52 common squares
-const START_POSITIONS = { Red: 0, Green: 13, Yellow: 26, Blue: 39 };
-
-const DOMPaths = {
-    left: document.getElementById('path-left'),
-    top: document.getElementById('path-top'),
-    right: document.getElementById('path-right'),
-    bottom: document.getElementById('path-bottom')
-};
-
-let cells = []; // Array to hold references to all 52 common path cell DOM elements
-let homePaths = { Red: [], Green: [], Yellow: [], Blue: [] }; // Array to hold home path cell DOM elements
-
-function buildBoardGrid() {
-    // Clear paths
-    for (let key in DOMPaths) DOMPaths[key].innerHTML = '';
-
-    // We will simulate a board. For simplicity in this logical layer, we define coordinates.
-    // Ludo path consists of 52 cells around the edge of the center cross.
-    // To position tokens cleanly, we use absolutely positioned div elements overlaid on the grid based on index.
-}
-
-// Generate coordinates for the 52 common path cells relative to the board
-const pathCoordinates = [
-    // Left arm top row (Red start area) - 0 to 4
-    {x: 1, y: 6}, {x: 2, y: 6}, {x: 3, y: 6}, {x: 4, y: 6}, {x: 5, y: 6},
-    // Top arm left col - 5 to 10
-    {x: 6, y: 5}, {x: 6, y: 4}, {x: 6, y: 3}, {x: 6, y: 2}, {x: 6, y: 1}, {x: 6, y: 0},
-    // Top arm top row (Green start) - 11 to 12
-    {x: 7, y: 0}, {x: 8, y: 0},
-    // Top arm right col - 13 to 17
-    {x: 8, y: 1}, {x: 8, y: 2}, {x: 8, y: 3}, {x: 8, y: 4}, {x: 8, y: 5},
-    // Right arm top row - 18 to 23
-    {x: 9, y: 6}, {x: 10, y: 6}, {x: 11, y: 6}, {x: 12, y: 6}, {x: 13, y: 6}, {x: 14, y: 6},
-    // Right arm right col (Yellow start) - 24 to 25
-    {x: 14, y: 7}, {x: 14, y: 8},
-    // Right arm bottom row - 26 to 30
-    {x: 13, y: 8}, {x: 12, y: 8}, {x: 11, y: 8}, {x: 10, y: 8}, {x: 9, y: 8},
-    // Bottom arm right col - 31 to 36
-    {x: 8, y: 9}, {x: 8, y: 10}, {x: 8, y: 11}, {x: 8, y: 12}, {x: 8, y: 13}, {x: 8, y: 14},
-    // Bottom arm bottom row (Blue start) - 37 to 38
-    {x: 7, y: 14}, {x: 6, y: 14},
-    // Bottom arm left col - 39 to 43
-    {x: 6, y: 13}, {x: 6, y: 12}, {x: 6, y: 11}, {x: 6, y: 10}, {x: 6, y: 9},
-    // Left arm bottom row - 44 to 49
-    {x: 5, y: 8}, {x: 4, y: 8}, {x: 3, y: 8}, {x: 2, y: 8}, {x: 1, y: 8}, {x: 0, y: 8},
-    // Left arm left col - 50 to 51
-    {x: 0, y: 7}, {x: 0, y: 6} // Adjusted to match grid
+// The 52 squares of the shared track, clockwise, starting at Red's start square. [x, y]
+const RING = [
+    [1, 6], [2, 6], [3, 6], [4, 6], [5, 6],              // 0-4
+    [6, 5], [6, 4], [6, 3], [6, 2], [6, 1], [6, 0],      // 5-10
+    [7, 0], [8, 0],                                      // 11-12
+    [8, 1], [8, 2], [8, 3], [8, 4], [8, 5],              // 13-17  (Green start = 13)
+    [9, 6], [10, 6], [11, 6], [12, 6], [13, 6], [14, 6], // 18-23
+    [14, 7], [14, 8],                                    // 24-25
+    [13, 8], [12, 8], [11, 8], [10, 8], [9, 8],          // 26-30  (Yellow start = 26)
+    [8, 9], [8, 10], [8, 11], [8, 12], [8, 13], [8, 14], // 31-36
+    [7, 14], [6, 14],                                    // 37-38
+    [6, 13], [6, 12], [6, 11], [6, 10], [6, 9],          // 39-43  (Blue start = 39)
+    [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8],      // 44-49
+    [0, 7], [0, 6]                                       // 50-51
 ];
 
-// Generate coordinates for Home Paths (6 steps total)
-const homeCoordinates = {
-    Red: [{x: 1, y: 7}, {x: 2, y: 7}, {x: 3, y: 7}, {x: 4, y: 7}, {x: 5, y: 7}, {x: 6, y: 7}],
-    Green: [{x: 7, y: 1}, {x: 7, y: 2}, {x: 7, y: 3}, {x: 7, y: 4}, {x: 7, y: 5}, {x: 7, y: 6}],
-    Yellow: [{x: 13, y: 7}, {x: 12, y: 7}, {x: 11, y: 7}, {x: 10, y: 7}, {x: 9, y: 7}, {x: 8, y: 7}],
-    Blue: [{x: 7, y: 13}, {x: 7, y: 12}, {x: 7, y: 11}, {x: 7, y: 10}, {x: 7, y: 9}, {x: 7, y: 8}]
+// Home columns, positions 51..55 for each colour. [x, y]
+const HOME_COLUMN = {
+    Red: [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7]],
+    Green: [[7, 1], [7, 2], [7, 3], [7, 4], [7, 5]],
+    Yellow: [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7]],
+    Blue: [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9]]
 };
 
-// Base positions
-const baseCoordinates = {
-    Red: [{x: 2, y: 2}, {x: 3, y: 2}, {x: 2, y: 3}, {x: 3, y: 3}],
-    Green: [{x: 11, y: 2}, {x: 12, y: 2}, {x: 11, y: 3}, {x: 12, y: 3}],
-    Yellow: [{x: 11, y: 11}, {x: 12, y: 11}, {x: 11, y: 12}, {x: 12, y: 12}],
-    Blue: [{x: 2, y: 11}, {x: 3, y: 11}, {x: 2, y: 12}, {x: 3, y: 12}]
+// Where finished tokens rest, inside each colour's centre triangle. [x, y] in cell units
+const FINISH_POINT = {
+    Red: [6.85, 7.5],
+    Green: [7.5, 6.85],
+    Yellow: [8.15, 7.5],
+    Blue: [7.5, 8.15]
 };
 
+// Token slots in each base. [x, y] in cell units
+const BASE_SLOTS = {
+    Red: [[2, 2], [4, 2], [2, 4], [4, 4]],
+    Green: [[11, 2], [13, 2], [11, 4], [13, 4]],
+    Yellow: [[11, 11], [13, 11], [11, 13], [13, 13]],
+    Blue: [[2, 11], [4, 11], [2, 13], [4, 13]]
+};
 
-function startGame() {
-    isGameActive = true;
-    currentPlayer = 0; // Red starts
-    canRoll = true;
+// The cell just before each colour's home column (gets an arrow). Ring indices.
+const ARROW_CELLS = { 50: 'red', 11: 'green', 24: 'yellow', 37: 'blue' };
 
-    // Reset tokens
-    for(let color in tokens) {
-        tokens[color].forEach(t => t.pos = -1);
-    }
+/* ---------- Game state ---------- */
+const tokens = {};
+COLORS.forEach((color) => {
+    tokens[color] = [0, 1, 2, 3].map((i) => ({ id: `${color[0]}${i + 1}`, pos: -1 }));
+});
 
-    updateTurnIndicator();
-    showScreen(gameScreen);
-    initializeBoard();
+let mode = null;          // 'offline' (vs computer) | 'local' (pass & play)
+let current = 0;          // index into COLORS
+let diceValue = 1;
+let phase = 'idle';       // idle | roll | rolling | move | animating | over
+let session = 0;          // bumped on every start/quit so stale async work stops
+let playLevel = 1;        // difficulty of the computer players
+let validIdx = [];        // token indexes the current player may move
+
+const tokenEls = {};
+
+/* ---------- Roadmap state ---------- */
+const TOTAL_LEVELS = 10;
+let unlockedLevel = 1;
+if (consent === 'all') {
+    unlockedLevel = Math.min(TOTAL_LEVELS, Math.max(1, Number(store.get(PROGRESS_KEY)) || 1));
 }
 
-function initializeBoard() {
-    const tokensLayer = document.getElementById('tokens-layer');
-    tokensLayer.innerHTML = '';
-
-    // Draw cells physically into the DOM to render path background correctly
-    drawPathCells();
-
-    // Create token elements
-    for(let color in tokens) {
-        tokens[color].forEach((t, index) => {
-            const tokenEl = document.createElement('div');
-            tokenEl.className = `token ${color.toLowerCase()}`;
-            tokenEl.id = t.id;
-            tokenEl.addEventListener('click', () => handleTokenClick(color, index));
-            tokensLayer.appendChild(tokenEl);
-        });
-    }
-    updateBoard();
+function saveProgress() {
+    if (consent === 'all') store.set(PROGRESS_KEY, String(unlockedLevel));
 }
 
-function drawPathCells() {
-    // Fill left path (Red arm)
-    const leftPath = document.getElementById('path-left');
-    leftPath.innerHTML = '';
-    for(let i=0; i<18; i++) {
-        let cell = document.createElement('div');
-        cell.className = 'cell';
-        if (i === 1) cell.classList.add('red-path'); // Start square
-        if (i >= 6 && i <= 11) cell.classList.add('red-path'); // Home run
-        leftPath.appendChild(cell);
-    }
-    // Fill top path (Green arm)
-    const topPath = document.getElementById('path-top');
-    topPath.innerHTML = '';
-    for(let i=0; i<18; i++) {
-        let cell = document.createElement('div');
-        cell.className = 'cell';
-        if (i === 4) cell.classList.add('green-path');
-        if (i % 3 === 1 && i > 0 && i < 17) cell.classList.add('green-path');
-        topPath.appendChild(cell);
-    }
-    // Fill right path (Yellow arm)
-    const rightPath = document.getElementById('path-right');
-    rightPath.innerHTML = '';
-    for(let i=0; i<18; i++) {
-        let cell = document.createElement('div');
-        cell.className = 'cell';
-        if (i === 16) cell.classList.add('yellow-path');
-        if (i >= 6 && i <= 11) cell.classList.add('yellow-path');
-        rightPath.appendChild(cell);
-    }
-    // Fill bottom path (Blue arm)
-    const bottomPath = document.getElementById('path-bottom');
-    bottomPath.innerHTML = '';
-    for(let i=0; i<18; i++) {
-        let cell = document.createElement('div');
-        cell.className = 'cell';
-        if (i === 13) cell.classList.add('blue-path');
-        if (i % 3 === 1 && i > 0 && i < 17) cell.classList.add('blue-path');
-        bottomPath.appendChild(cell);
-    }
-}
+/* ---------- Board construction ---------- */
+function buildBoard() {
+    const board = $('board');
+    const layer = $('tokens-layer');
+    const frag = document.createDocumentFragment();
 
-function getGridPosition(color, index, pos) {
-    const boardSize = 15; // 15x15 grid logic
-    let coord = {x: 0, y: 0};
+    // Bases: [row, col] of the top-left cell (1-indexed)
+    const baseOrigin = { Red: [1, 1], Green: [1, 10], Yellow: [10, 10], Blue: [10, 1] };
+    COLORS.forEach((color) => {
+        const [row, col] = baseOrigin[color];
+        const base = el('div', `base ${color.toLowerCase()}`);
+        base.style.gridArea = `${row} / ${col} / ${row + 6} / ${col + 6}`;
+        const inner = el('div', 'base-inner');
+        for (let i = 0; i < 4; i++) inner.appendChild(el('span', 'slot'));
+        base.appendChild(inner);
+        frag.appendChild(base);
+    });
 
-    if (pos === -1) {
-        // Base
-        coord = baseCoordinates[color][index];
-    } else if (pos >= 52) {
-        // Home path
-        let homeIndex = pos - 51; // Changed to 51 so pos 51 gives index 0
-        if(homeIndex > 5) homeIndex = 5;
-        coord = homeCoordinates[color][homeIndex];
-    } else {
-        // Common path
-        let offsetPos = (pos + START_POSITIONS[color]) % 52;
-        if (offsetPos >= pathCoordinates.length) offsetPos = pathCoordinates.length - 1; // Fallback
-        coord = pathCoordinates[offsetPos] || {x:0, y:0};
-    }
-
-    return {
-        left: `calc((${coord.x} + 0.5) * (100% / ${boardSize}))`,
-        top: `calc((${coord.y} + 0.5) * (100% / ${boardSize}))`
+    const addCell = (x, y, classes) => {
+        const cell = el('div', `cell ${classes}`.trim());
+        cell.style.gridColumn = String(x + 1);
+        cell.style.gridRow = String(y + 1);
+        frag.appendChild(cell);
     };
+
+    // Shared track
+    RING.forEach(([x, y], index) => {
+        const classes = [];
+        const startColor = COLORS.find((c) => START[c] === index);
+        if (startColor) classes.push('start', `c-${startColor.toLowerCase()}`);
+        else if (SAFE.has(index)) classes.push('star');
+        if (ARROW_CELLS[index]) classes.push('arrow', `a-${ARROW_CELLS[index]}`);
+        addCell(x, y, classes.join(' '));
+    });
+
+    // Home columns
+    COLORS.forEach((color) => {
+        HOME_COLUMN[color].forEach(([x, y]) => addCell(x, y, `home c-${color.toLowerCase()}`));
+    });
+
+    // Centre
+    const center = el('div', 'center');
+    ['red', 'green', 'yellow', 'blue'].forEach((c) => center.appendChild(el('div', `tri t-${c}`)));
+    frag.appendChild(center);
+
+    board.insertBefore(frag, layer);
+}
+
+function buildTokens() {
+    const layer = $('tokens-layer');
+    layer.innerHTML = '';
+    COLORS.forEach((color) => {
+        tokens[color].forEach((t, i) => {
+            const btn = el('button', `token ${color.toLowerCase()}`);
+            btn.type = 'button';
+            btn.id = t.id;
+            btn.disabled = true;
+            btn.addEventListener('click', () => onTokenClick(color, i));
+            layer.appendChild(btn);
+            tokenEls[t.id] = btn;
+        });
+    });
+}
+
+/* ---------- Positions ---------- */
+function ringIndex(color, pos) {
+    return pos >= 0 && pos <= RING_END ? (pos + START[color]) % 52 : null;
+}
+
+// Point (in cell units) where a token should be drawn
+function pointFor(color, index, pos) {
+    if (pos === -1) return BASE_SLOTS[color][index];
+    if (pos <= RING_END) {
+        const [x, y] = RING[ringIndex(color, pos)];
+        return [x + 0.5, y + 0.5];
+    }
+    if (pos < FINISH) {
+        const [x, y] = HOME_COLUMN[color][pos - 51];
+        return [x + 0.5, y + 0.5];
+    }
+    return FINISH_POINT[color];
 }
 
 function updateBoard() {
-    // Keep track of counts per square to offset tokens
-    const counts = {};
-
-    for(let color in tokens) {
-        tokens[color].forEach((t, index) => {
-            const posKey = `${t.pos}_${color}`; // Distinguish base positions by color
-            const globalPos = t.pos === -1 ? posKey : (t.pos >= 51 ? `home_${t.pos}_${color}` : `path_${(t.pos + START_POSITIONS[color]) % 52}`);
-            counts[globalPos] = (counts[globalPos] || 0) + 1;
+    // Group tokens that share a square so they can be fanned out
+    const groups = new Map();
+    COLORS.forEach((color) => {
+        tokens[color].forEach((t, i) => {
+            const [px, py] = pointFor(color, i, t.pos);
+            let key;
+            if (t.pos === -1) key = `base-${t.id}`;
+            else if (t.pos === FINISH) key = `fin-${color}`;
+            else key = `${px},${py}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push({ color, index: i, px, py });
         });
-    }
-
-    const currentCounts = {};
-
-    for(let color in tokens) {
-        tokens[color].forEach((t, index) => {
-            const el = document.getElementById(t.id);
-            const pos = getGridPosition(color, index, t.pos);
-
-            const posKey = `${t.pos}_${color}`;
-            const globalPos = t.pos === -1 ? posKey : (t.pos >= 51 ? `home_${t.pos}_${color}` : `path_${(t.pos + START_POSITIONS[color]) % 52}`);
-
-            currentCounts[globalPos] = (currentCounts[globalPos] || 0) + 1;
-
-            let offsetX = 0;
-            let offsetY = 0;
-
-            // Only offset if in path or home (not base)
-            if (t.pos !== -1 && counts[globalPos] > 1) {
-                const total = counts[globalPos];
-                const i = currentCounts[globalPos] - 1;
-
-                // Simple circular distribution around the center
-                const angle = (2 * Math.PI * i) / total;
-                const radius = 5; // 5px offset
-                offsetX = Math.cos(angle) * radius;
-                offsetY = Math.sin(angle) * radius;
-            }
-
-            el.style.left = `calc(${pos.left} + ${offsetX}px)`;
-            el.style.top = `calc(${pos.top} + ${offsetY}px)`;
-
-            el.classList.remove('active-token');
-            if(color === players[currentPlayer] && canRoll === false) {
-                if(t.pos !== -1 || diceValue === 6) {
-                   el.classList.add('active-token');
-                }
-            }
-        });
-    }
-}
-
-// Dice Logic
-const btnRoll = document.getElementById('btn-roll');
-const diceEl = document.getElementById('dice');
-
-btnRoll.addEventListener('click', rollDice);
-
-function rollDice() {
-    if (!canRoll || !isGameActive) return;
-    canRoll = false;
-
-    diceEl.classList.add('rolling');
-    setTimeout(() => {
-        diceValue = Math.floor(Math.random() * 6) + 1;
-        diceEl.textContent = diceValue;
-        diceEl.classList.remove('rolling');
-
-        checkMovableTokens();
-    }, 500);
-}
-
-function checkMovableTokens() {
-    const currentColor = players[currentPlayer];
-    const myTokens = tokens[currentColor];
-
-    const canMove = myTokens.some(t => {
-        if (t.pos === -1) return diceValue === 6;
-        if (t.pos + diceValue <= 57) return true; // 57 is max (51 path + 6 home)
-        return false;
     });
 
-    if (canMove) {
-        updateBoard(); // Highlight movable tokens
-    } else {
-        nextTurn();
-    }
-}
-
-function handleTokenClick(color, index) {
-    if (color !== players[currentPlayer] || canRoll) return;
-
-    const token = tokens[color][index];
-
-    if (token.pos === -1) {
-        if (diceValue === 6) {
-            token.pos = 0; // Move to start
-            finalizeMove();
-        }
-    } else {
-        if (token.pos + diceValue <= 57) {
-            token.pos += diceValue;
-            checkCapture(color, token);
-            finalizeMove();
-        }
-    }
-}
-
-function checkCapture(myColor, myToken) {
-    if (myToken.pos >= 52) return; // In home path
-
-    let myGlobalPos = (myToken.pos + START_POSITIONS[myColor]) % 52;
-    if (safeZones.includes(myGlobalPos)) return;
-
-    for(let c in tokens) {
-        if (c !== myColor) {
-            tokens[c].forEach(t => {
-                if (t.pos >= 0 && t.pos < 52) {
-                    let theirGlobalPos = (t.pos + START_POSITIONS[c]) % 52;
-                    if (myGlobalPos === theirGlobalPos) {
-                        t.pos = -1; // Send back to base
-                    }
+    groups.forEach((members, key) => {
+        const n = members.length;
+        members.forEach((m, k) => {
+            let ox = 0;
+            let oy = 0;
+            if (n > 1) {
+                if (key.startsWith('fin-')) {
+                    const spread = (k - (n - 1) / 2) * 0.2;
+                    const vertical = m.color === 'Red' || m.color === 'Yellow';
+                    ox = vertical ? 0 : spread;
+                    oy = vertical ? spread : 0;
+                } else {
+                    const radius = n === 2 ? 0.17 : 0.22;
+                    const angle = (2 * Math.PI * k) / n - Math.PI / 2;
+                    ox = Math.cos(angle) * radius;
+                    oy = Math.sin(angle) * radius;
                 }
-            });
-        }
-    }
+            }
+            const t = tokens[m.color][m.index];
+            const node = tokenEls[t.id];
+            node.style.left = `${((m.px + ox) / GRID) * 100}%`;
+            node.style.top = `${((m.py + oy) / GRID) * 100}%`;
+        });
+    });
+
+    // Which tokens can be clicked right now
+    const color = COLORS[current];
+    COLORS.forEach((c) => {
+        tokens[c].forEach((t, i) => {
+            const node = tokenEls[t.id];
+            const can = phase === 'move' && isHuman(current) && c === color && validIdx.includes(i);
+            node.disabled = !can;
+            node.classList.toggle('movable', can);
+            node.setAttribute('aria-label', tokenLabel(c, i, t.pos, can));
+        });
+    });
 }
 
-function finalizeMove() {
+function tokenLabel(color, i, pos, can) {
+    let where = 'on the board';
+    if (pos === -1) where = 'in base';
+    else if (pos === FINISH) where = 'home';
+    else if (pos > RING_END) where = 'in the home column';
+    return `${color} token ${i + 1}, ${where}${can ? ', can move' : ''}`;
+}
+
+/* ---------- Players ---------- */
+function isHuman(playerIndex) {
+    return mode === 'local' || (mode === 'offline' && playerIndex === 0);
+}
+
+function buildPlayers() {
+    const wrap = $('players');
+    wrap.innerHTML = '';
+    COLORS.forEach((color) => {
+        const chip = el('div', 'chip');
+        chip.id = `chip-${color.toLowerCase()}`;
+        chip.style.setProperty('--c', `var(--${color.toLowerCase()})`);
+        const name = el('span', 'chip-name');
+        name.textContent = color;
+        const role = el('span', 'chip-role');
+        const count = el('span', 'chip-count');
+        chip.append(name, role, count);
+        wrap.appendChild(chip);
+    });
+}
+
+function updatePlayers() {
+    COLORS.forEach((color, i) => {
+        const chip = $(`chip-${color.toLowerCase()}`);
+        chip.classList.toggle('active', i === current && phase !== 'over' && phase !== 'idle');
+        chip.querySelector('.chip-role').textContent = mode === 'offline' ? (i === 0 ? 'You' : 'Computer') : 'Player ' + (i + 1);
+        const home = tokens[color].filter((t) => t.pos === FINISH).length;
+        chip.querySelector('.chip-count').textContent = `${home}/4 home`;
+    });
+}
+
+function playerName(i) {
+    const color = COLORS[i];
+    if (mode === 'offline') return i === 0 ? `Your turn (${color})` : `${color} (computer)`;
+    return `${color}'s turn`;
+}
+
+function updateIndicator() {
+    const color = COLORS[current].toLowerCase();
+    const node = $('turn-indicator');
+    node.querySelector('.dot').style.setProperty('--c', `var(--${color})`);
+    node.querySelector('.turn-text').textContent = playerName(current);
+}
+
+function setStatus(message) {
+    $('status').textContent = message;
+}
+
+/* ---------- Dice ---------- */
+const PIP_PATTERNS = {
+    1: [4],
+    2: [0, 8],
+    3: [0, 4, 8],
+    4: [0, 2, 6, 8],
+    5: [0, 2, 4, 6, 8],
+    6: [0, 2, 3, 5, 6, 8]
+};
+
+const diceEl = $('dice');
+const rollBtn = $('btn-roll');
+
+function buildDice() {
+    diceEl.innerHTML = '';
+    for (let i = 0; i < 9; i++) diceEl.appendChild(el('span', 'pip'));
+}
+
+function renderDice(value) {
+    const pips = diceEl.children;
+    const on = PIP_PATTERNS[value];
+    for (let i = 0; i < 9; i++) pips[i].classList.toggle('on', on.includes(i));
+    diceEl.setAttribute('aria-label', `Dice showing ${value}`);
+}
+
+function tintDice() {
+    const color = COLORS[current].toLowerCase();
+    diceEl.style.setProperty('--pip', `var(--${color}-d)`);
+}
+
+/* ---------- Rules helpers ---------- */
+function targetPos(token) {
+    if (token.pos === -1) return diceValue === 6 ? 0 : null;
+    const target = token.pos + diceValue;
+    return target <= FINISH ? target : null;
+}
+
+function validMoves(color) {
+    const list = [];
+    tokens[color].forEach((t, i) => {
+        if (targetPos(t) !== null) list.push(i);
+    });
+    return list;
+}
+
+// Tokens still in base are interchangeable, so only offer the first one as a distinct choice
+function uniqueMoves(color) {
+    let baseSeen = false;
+    return validMoves(color).filter((i) => {
+        if (tokens[color][i].pos !== -1) return true;
+        if (baseSeen) return false;
+        baseSeen = true;
+        return true;
+    });
+}
+
+function firstBaseToken(color) {
+    return tokens[color].findIndex((t) => t.pos === -1);
+}
+
+function opponentsAt(color, ringIdx) {
+    const hits = [];
+    COLORS.forEach((c) => {
+        if (c === color) return;
+        tokens[c].forEach((t) => {
+            if (ringIndex(c, t.pos) === ringIdx) hits.push(t);
+        });
+    });
+    return hits;
+}
+
+function wouldCapture(color, pos) {
+    const idx = ringIndex(color, pos);
+    if (idx === null || SAFE.has(idx)) return false;
+    return opponentsAt(color, idx).length > 0;
+}
+
+function resolveCapture(color, token) {
+    const idx = ringIndex(color, token.pos);
+    if (idx === null || SAFE.has(idx)) return 0;
+    const victims = opponentsAt(color, idx);
+    victims.forEach((v) => { v.pos = -1; });
+    return victims.length;
+}
+
+function isThreatened(color, pos) {
+    const idx = ringIndex(color, pos);
+    if (idx === null || SAFE.has(idx)) return false;
+    return COLORS.some((c) => c !== color && tokens[c].some((t) => {
+        const oi = ringIndex(c, t.pos);
+        if (oi === null) return false;
+        const gap = (idx - oi + 52) % 52;
+        return gap >= 1 && gap <= 6;
+    }));
+}
+
+/* ---------- Computer player ---------- */
+function scoreMove(color, i) {
+    const t = tokens[color][i];
+    const to = targetPos(t);
+    let score = to * 0.3;
+    if (to === FINISH) score += 100;
+    if (wouldCapture(color, to)) score += 90;
+    if (t.pos === -1) score += 60;
+    if (to > RING_END && to < FINISH) score += 35;
+    const idx = ringIndex(color, to);
+    if (idx !== null && SAFE.has(idx)) score += 30;
+    if (t.pos >= 0 && isThreatened(color, t.pos)) score += 20;
+    if (idx !== null && isThreatened(color, to)) score -= 15;
+    return score + Math.random() * 5;
+}
+
+function aiChoose() {
+    const color = COLORS[current];
+    const options = uniqueMoves(color);
+    const smartness = Math.min(0.95, 0.25 + playLevel * 0.07);
+    if (Math.random() > smartness) return pick(options);
+    let best = options[0];
+    let bestScore = -Infinity;
+    options.forEach((i) => {
+        const s = scoreMove(color, i);
+        if (s > bestScore) { bestScore = s; best = i; }
+    });
+    return best;
+}
+
+/* ---------- Turn flow ---------- */
+function startGame(newMode, level) {
+    session += 1;
+    mode = newMode;
+    playLevel = level || unlockedLevel;
+    current = 0;
+    diceValue = 1;
+    phase = 'idle';
+    validIdx = [];
+    COLORS.forEach((c) => tokens[c].forEach((t) => { t.pos = -1; }));
+
+    winnerModal.classList.add('hidden');
+    showScreen(gameScreen);
+    buildTokens();
+    buildPlayers();
+    renderDice(1);
+    beginTurn();
+}
+
+function beginTurn() {
+    const s = session;
+    phase = 'roll';
+    validIdx = [];
+    updateIndicator();
+    tintDice();
+    updatePlayers();
     updateBoard();
-    checkWinCondition();
+    rollBtn.disabled = !isHuman(current);
 
-    if (diceValue !== 6) {
-        nextTurn();
+    if (isHuman(current)) {
+        setStatus(`${COLORS[current]}, roll the dice.`);
     } else {
-        canRoll = true;
-        updateBoard();
-
-        // If AI rolled a 6, it needs to roll again
-        if (currentMode === 'offline' && currentPlayer !== 0) {
-            setTimeout(playAI, 1000);
-        }
+        setStatus(`${COLORS[current]} (computer) is thinking…`);
+        sleep(900).then(() => { if (s === session) doRoll(); });
     }
 }
 
 function nextTurn() {
-    currentPlayer = (currentPlayer + 1) % 4;
-    canRoll = true;
-    updateTurnIndicator();
+    current = (current + 1) % 4;
+    beginTurn();
+}
+
+async function doRoll() {
+    if (phase !== 'roll') return;
+    const s = session;
+    phase = 'rolling';
+    rollBtn.disabled = true;
+    diceEl.classList.add('rolling');
+
+    const finalValue = randInt(1, 6);
+    for (let i = 0; i < 6; i++) {
+        renderDice(randInt(1, 6));
+        await sleep(80);
+        if (s !== session) return;
+    }
+    diceEl.classList.remove('rolling');
+    diceValue = finalValue;
+    renderDice(diceValue);
+
+    const color = COLORS[current];
+    validIdx = validMoves(color);
+    const unique = uniqueMoves(color);
+
+    if (validIdx.length === 0) {
+        setStatus(`${color} rolled a ${diceValue}. No moves available.`);
+        await sleep(1000);
+        if (s !== session) return;
+        nextTurn();
+        return;
+    }
+
+    phase = 'move';
     updateBoard();
 
-    // If playing against computer and it's not Red's turn
-    if (currentMode === 'offline' && currentPlayer !== 0) {
-        setTimeout(playAI, 1000);
+    if (!isHuman(current)) {
+        setStatus(`${color} rolled a ${diceValue}.`);
+        await sleep(700);
+        if (s !== session) return;
+        doMove(aiChoose());
+        return;
+    }
+
+    if (unique.length === 1) {
+        setStatus(`You rolled a ${diceValue}.`);
+        await sleep(450);
+        if (s !== session || phase !== 'move') return;
+        doMove(unique[0]);
+    } else {
+        setStatus(`You rolled a ${diceValue}. Choose a token to move.`);
     }
 }
 
-function updateTurnIndicator() {
-    const indicator = document.getElementById('turn-indicator');
-    indicator.textContent = `Player ${currentPlayer + 1}'s Turn (${players[currentPlayer]})`;
-    indicator.style.color = `var(--${players[currentPlayer].toLowerCase()})`;
+function onTokenClick(color, i) {
+    if (phase !== 'move' || !isHuman(current) || color !== COLORS[current]) return;
+    if (!validIdx.includes(i)) return;
+    const t = tokens[color][i];
+    doMove(t.pos === -1 ? firstBaseToken(color) : i);
 }
 
-function checkWinCondition() {
-    const currentColor = players[currentPlayer];
-    const hasWon = tokens[currentColor].every(t => t.pos === 57);
-    if (hasWon) {
-        isGameActive = false;
-        document.getElementById('winner-text').textContent = `${currentColor} Wins!`;
-        document.getElementById('winner-modal').classList.remove('hidden');
-        if(currentColor === 'Red') {
-            unlockedLevel = Math.min(totalLevels, unlockedLevel + 1);
+async function doMove(index) {
+    if (phase !== 'move') return;
+    const s = session;
+    const color = COLORS[current];
+    const token = tokens[color][index];
+
+    phase = 'animating';
+    validIdx = [];
+    updateBoard();
+
+    if (token.pos === -1) {
+        token.pos = 0;
+        updateBoard();
+        await sleep(280);
+    } else {
+        for (let step = 0; step < diceValue; step++) {
+            token.pos += 1;
+            updateBoard();
+            await sleep(170);
+            if (s !== session) return;
         }
+    }
+    if (s !== session) return;
+
+    const captured = resolveCapture(color, token);
+    if (captured) {
+        updateBoard();
+        updatePlayers();
+        setStatus(`${color} captured ${captured === 1 ? 'a token' : captured + ' tokens'}!`);
+        await sleep(600);
+        if (s !== session) return;
+    }
+
+    updatePlayers();
+
+    if (tokens[color].every((t) => t.pos === FINISH)) {
+        finishGame(color);
+        return;
+    }
+
+    const reachedHome = token.pos === FINISH;
+    if (diceValue === 6 || captured || reachedHome) {
+        const why = diceValue === 6 ? 'a 6' : captured ? 'a capture' : 'getting home';
+        beginTurn();
+        setStatus(`${COLORS[current]} gets another roll for ${why}.`);
+    } else {
+        nextTurn();
     }
 }
 
-function playAI() {
-    if (!isGameActive) return;
+function finishGame(color) {
+    phase = 'over';
+    rollBtn.disabled = true;
+    updateBoard();
+    updatePlayers();
 
-    // AI acts like it clicks the roll button
-    rollDice();
+    const humanWon = mode === 'offline' && color === 'Red';
+    $('winner-text').textContent = mode === 'offline'
+        ? (humanWon ? 'You win!' : `${color} (computer) wins`)
+        : `${color} wins!`;
 
-    // Wait for roll animation to finish (500ms) then decide move
-    setTimeout(() => {
-        if (canRoll) return; // Means no valid moves were found in checkMovableTokens
-
-        const currentColor = players[currentPlayer];
-        const myTokens = tokens[currentColor];
-
-        // Find valid tokens to move
-        let validTokens = [];
-        myTokens.forEach((t, index) => {
-            if (t.pos === -1 && diceValue === 6) validTokens.push(index);
-            else if (t.pos !== -1 && t.pos + diceValue <= 57) validTokens.push(index);
-        });
-
-        if (validTokens.length > 0) {
-            // Simple heuristic: Try to move tokens that are furthest along, but prioritize taking out pieces if possible
-            // For now, random selection from valid tokens
-            const randomIndex = validTokens[Math.floor(Math.random() * validTokens.length)];
-
-            // Wait slightly before moving token to simulate thinking
-            setTimeout(() => {
-                handleTokenClick(currentColor, randomIndex);
-            }, 500);
+    let sub = '';
+    if (humanWon) {
+        if (playLevel === unlockedLevel && unlockedLevel < TOTAL_LEVELS) {
+            unlockedLevel += 1;
+            saveProgress();
+            sub = `Level ${unlockedLevel} unlocked.`;
+        } else if (playLevel >= TOTAL_LEVELS) {
+            sub = 'You cleared the top level!';
         }
-    }, 800);
+    } else if (mode === 'offline') {
+        sub = 'Better luck next time.';
+    }
+    $('winner-sub').textContent = sub;
+    setStatus(`${color} wins the game.`);
+    winnerModal.classList.remove('hidden');
+    $('btn-play-again').focus();
 }
+
+/* ---------- Roadmap ---------- */
+function renderRoadmap() {
+    const container = $('roadmap-list');
+    container.innerHTML = '';
+    for (let i = 1; i <= TOTAL_LEVELS; i++) {
+        const node = el('button', 'roadmap-node');
+        node.type = 'button';
+        node.textContent = i < unlockedLevel ? '✓' : String(i);
+        node.style.setProperty('--x', `${Math.round(Math.sin(i * 1.5) * 60)}px`);
+
+        if (i < unlockedLevel) {
+            node.classList.add('completed');
+            node.setAttribute('aria-label', `Level ${i}, completed. Play again`);
+        } else if (i === unlockedLevel) {
+            node.classList.add('current');
+            node.setAttribute('aria-label', `Level ${i}, current. Play`);
+        } else {
+            node.classList.add('locked');
+            node.disabled = true;
+            node.setAttribute('aria-label', `Level ${i}, locked`);
+        }
+        node.addEventListener('click', () => startGame('offline', i));
+        container.appendChild(node);
+    }
+}
+
+/* ---------- Navigation ---------- */
+$('btn-offline').addEventListener('click', () => startGame('offline'));
+$('btn-local').addEventListener('click', () => startGame('local'));
+$('btn-online').addEventListener('click', () => showScreen(matchmakingScreen));
+$('btn-play-local').addEventListener('click', () => startGame('local'));
+$('btn-cancel-matchmaking').addEventListener('click', () => showScreen(mainMenu));
+$('btn-roadmap').addEventListener('click', () => { renderRoadmap(); showScreen(roadmapScreen); });
+$('btn-back-from-roadmap').addEventListener('click', () => showScreen(mainMenu));
+
+function leaveGame() {
+    session += 1;
+    phase = 'idle';
+    winnerModal.classList.add('hidden');
+    showScreen(mainMenu);
+}
+
+$('btn-back-to-menu').addEventListener('click', leaveGame);
+$('btn-winner-menu').addEventListener('click', leaveGame);
+$('btn-play-again').addEventListener('click', () => startGame(mode, playLevel));
+
+rollBtn.addEventListener('click', () => { if (isHuman(current)) doRoll(); });
+diceEl.addEventListener('click', () => { if (phase === 'roll' && isHuman(current)) doRoll(); });
+
+/* ---------- Cookie banner ---------- */
+const banner = $('cookie-banner');
+
+function setConsent(value) {
+    consent = value;
+    store.set(CONSENT_KEY, value);
+    if (value === 'all') saveProgress();
+    else store.remove(PROGRESS_KEY);
+    banner.classList.add('hidden');
+}
+
+$('btn-cookie-accept').addEventListener('click', () => setConsent('all'));
+$('btn-cookie-essential').addEventListener('click', () => setConsent('essential'));
+$('btn-cookie-settings').addEventListener('click', () => {
+    banner.classList.remove('hidden');
+    $('btn-cookie-accept').focus();
+});
+
+if (!consent) banner.classList.remove('hidden');
+
+/* ---------- PWA ---------- */
+let installPrompt = null;
+const installBtn = $('btn-install');
+
+window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    installPrompt = event;
+    installBtn.classList.remove('hidden');
+});
+
+installBtn.addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch (e) { /* dismissed */ }
+    installPrompt = null;
+    installBtn.classList.add('hidden');
+});
+
+window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    installBtn.classList.add('hidden');
+});
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => { /* offline mode unavailable */ });
+    });
+}
+
+/* ---------- Init ---------- */
+$('year').textContent = String(new Date().getFullYear());
+buildBoard();
+buildDice();
+renderDice(1);
