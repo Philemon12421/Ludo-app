@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Ludoka – Play Classic Ludo Online</title>
+    <meta name="description" content="Play classic Ludo free in your browser. Race four tokens home against the computer or with friends on one device. Installable and works offline.">
+    <meta name="keywords" content="Ludo, play Ludo online, Ludo game, board game, offline Ludo, Ludo PWA">
+    <meta name="author" content="Philemon">
+    <meta name="theme-color" content="#1a1446">
+    <link rel="canonical" href="https://ludoka.vercel.app/">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Ludoka – Play Classic Ludo Online">
+    <meta property="og:description" content="Classic Ludo in your browser. Play the computer or friends, install it and play offline.">
+    <meta property="og:url" content="https://ludoka.vercel.app/">
+    <meta property="og:image" content="https://ludoka.vercel.app/icons/icon-512.png">
+    <meta name="twitter:card" content="summary">
+
+    <!-- Favicon, icons, PWA -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48">
+    <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Ludoka">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="brand">
+            <img src="/icons/favicon.svg" alt="" width="34" height="34">
+            <span>Ludoka</span>
+        </div>
+        <button id="btn-install" class="btn btn-ghost btn-sm hidden" type="button">Install app</button>
+    </header>
+
+    <main id="main">
+        <!-- Main menu -->
+        <section id="main-menu" class="screen active" aria-labelledby="menu-title">
+            <h1 id="menu-title" class="logo-title" aria-label="Ludo">
+                <span class="l-r">L</span><span class="l-g">U</span><span class="l-y">D</span><span class="l-b">O</span>
+            </h1>
+            <p class="tagline">The classic race around the board. Roll a 6 to get started.</p>
+
+            <div class="menu-card">
+                <button id="btn-offline" class="btn btn-primary btn-lg" type="button">Play vs Computer</button>
+                <button id="btn-local" class="btn btn-green btn-lg" type="button">Pass &amp; Play (2–4 players)</button>
+                <button id="btn-online" class="btn btn-blue btn-lg" type="button">Online Match <span class="badge">Soon</span></button>
+                <button id="btn-roadmap" class="btn btn-ghost btn-lg" type="button">Roadmap (Milestones)</button>
+            </div>
+
+            <details class="rules">
+                <summary>How to play</summary>
+                <ul>
+                    <li>Roll a 6 to bring a token out of your base.</li>
+                    <li>Tokens travel clockwise, then up your coloured home column to the centre.</li>
+                    <li>Starred squares and your start square are safe.</li>
+                    <li>Land on an opponent off a safe square to send them back to base.</li>
+                    <li>A 6, a capture, or getting a token home gives you another roll.</li>
+                    <li>First to bring all four tokens to the centre wins.</li>
+                </ul>
+            </details>
+        </section>
+
+        <!-- Roadmap -->
+        <section id="roadmap-screen" class="screen hidden" aria-labelledby="roadmap-title">
+            <div class="screen-header">
+                <button id="btn-back-from-roadmap" class="btn btn-ghost btn-sm" type="button">Back</button>
+                <h2 id="roadmap-title">Milestones</h2>
+            </div>
+            <p class="note">Beat the computer to unlock the next level. Higher levels play smarter.</p>
+            <div id="roadmap-list" class="roadmap-container"></div>
+        </section>
+
+        <!-- Online: coming soon -->
+        <section id="matchmaking-screen" class="screen hidden" aria-labelledby="online-title">
+            <div class="panel">
+                <h2 id="online-title">Online play is coming soon</h2>
+                <p>We're still building real-time matches. For now, you can pass the device around and play with up to 3 friends.</p>
+                <button id="btn-play-local" class="btn btn-green btn-lg" type="button">Play Pass &amp; Play</button>
+                <button id="btn-cancel-matchmaking" class="btn btn-ghost" type="button">Back to menu</button>
+            </div>
+        </section>
+
+        <!-- Game -->
+        <section id="game-screen" class="screen hidden" aria-label="Ludo game">
+            <div class="game-layout">
+                <div class="game-topbar">
+                    <button id="btn-back-to-menu" class="btn btn-ghost btn-sm" type="button">Quit</button>
+                    <div id="turn-indicator" aria-live="polite"><span class="dot"></span><span class="turn-text">Red's turn</span></div>
+                </div>
+
+                <div class="board-wrap">
+                    <div class="ludo-board" id="board" role="group" aria-label="Ludo board">
+                        <div id="tokens-layer"></div>
+                    </div>
+                </div>
+
+                <div class="game-side">
+                    <div id="players" class="players" aria-label="Players"></div>
+                    <div class="controls">
+                        <div id="dice" class="dice" role="img" aria-label="Dice showing 1"></div>
+                        <button id="btn-roll" class="btn btn-primary" type="button">Roll Dice</button>
+                    </div>
+                    <p id="status" role="status" aria-live="polite"></p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Winner modal -->
+    <div id="winner-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="winner-text">
+        <div class="modal-content">
+            <div class="trophy" aria-hidden="true">🏆</div>
+            <h2 id="winner-text">Red Wins!</h2>
+            <p id="winner-sub"></p>
+            <button id="btn-play-again" class="btn btn-primary" type="button">Play Again</button>
+            <button id="btn-winner-menu" class="btn btn-ghost" type="button">Main Menu</button>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <a class="star-link" href="https://github.com/Philemon12421/Uncomplete-Ludo-app" target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="star-ic" d="M12 2.5l2.94 5.96 6.58.96-4.76 4.64 1.12 6.55L12 17.52l-5.88 3.09 1.12-6.55L2.48 9.42l6.58-.96L12 2.5z"/></svg>
+            <span>Star this repo on GitHub</span>
+        </a>
+        <span>© <span id="year">2026</span> Ludoka</span>
+        <button id="btn-cookie-settings" class="link-btn" type="button">Cookie settings</button>
+    </footer>
+
+    <!-- Cookie / storage notice -->
+    <div id="cookie-banner" class="cookie hidden" role="dialog" aria-labelledby="cookie-title" aria-describedby="cookie-desc">
+        <div class="cookie-text">
+            <strong id="cookie-title">Cookies &amp; local storage</strong>
+            <span id="cookie-desc">Ludoka uses a little storage on your device to keep the game working. If you allow it, we'll also remember your milestone progress. No ads, no tracking.</span>
+            <details>
+                <summary>More details</summary>
+                <p><b>Essential:</b> your choice on this banner and the offline cache that lets the game run without a connection.<br>
+                <b>Optional (Accept):</b> saves your unlocked milestone level in this browser.<br>
+                Nothing is sent to us or to third parties. Choose "Essential only" and the game works the same, but progress isn't saved between visits. You can change your mind any time from "Cookie settings" in the footer.</p>
+            </details>
+        </div>
+        <div class="cookie-actions">
+            <button id="btn-cookie-essential" class="btn btn-ghost btn-sm" type="button">Essential only</button>
+            <button id="btn-cookie-accept" class="btn btn-green btn-sm" type="button">Accept</button>
+        </div>
+    </div>
+
+    <noscript><p class="noscript-msg">Ludoka needs JavaScript to run. Please enable it and reload.</p></noscript>
+
+    <script src="index.js" defer></script>
+</body>
+</html>
