@@ -36,7 +36,13 @@
             <img src="/icons/favicon.svg" alt="" width="34" height="34">
             <span>Ludoka</span>
         </div>
-        <button id="btn-install" class="btn btn-ghost btn-sm hidden" type="button">Install app</button>
+        <div class="header-actions">
+            <button id="btn-install" class="btn btn-ghost btn-sm hidden" type="button">Install app</button>
+            <button id="btn-sound" class="icon-btn" type="button" aria-label="Sound" aria-pressed="true">
+                <svg class="ic-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10v4h4l5 4V6L7 10H3z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 010 7M18.2 6a8.5 8.5 0 010 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <svg class="ic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10v4h4l5 4V6L7 10H3z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+        </div>
     </header>
 
     <main id="main">
@@ -62,7 +68,7 @@
                     <li>Starred squares and your start square are safe.</li>
                     <li>Land on an opponent off a safe square to send them back to base.</li>
                     <li>A 6, a capture, or getting a token home gives you another roll.</li>
-                    <li>First to bring all four tokens to the centre wins.</li>
+                    <li>First to bring all four tokens to the centre wins. The game goes on until every place is decided.</li>
                 </ul>
             </details>
         </section>
@@ -113,16 +119,31 @@
         </section>
     </main>
 
-    <!-- Winner modal -->
+    <!-- Congratulations popup: shown each time a player brings all four tokens home -->
+    <div id="place-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="place-title">
+        <div class="modal-content">
+            <div id="place-medal" class="medal" aria-hidden="true">🥇</div>
+            <h2 id="place-title">Congratulations!</h2>
+            <p id="place-sub"></p>
+            <button id="btn-place-continue" class="btn btn-primary" type="button">Continue</button>
+            <button id="btn-place-skip" class="btn btn-ghost hidden" type="button">Skip to results</button>
+        </div>
+    </div>
+
+    <!-- Final standings -->
     <div id="winner-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="winner-text">
         <div class="modal-content">
             <div class="trophy" aria-hidden="true">🏆</div>
-            <h2 id="winner-text">Red Wins!</h2>
+            <h2 id="winner-text">Final standings</h2>
             <p id="winner-sub"></p>
+            <ol id="standings" class="standings"></ol>
             <button id="btn-play-again" class="btn btn-primary" type="button">Play Again</button>
             <button id="btn-winner-menu" class="btn btn-ghost" type="button">Main Menu</button>
         </div>
     </div>
+
+    <!-- Confetti layer -->
+    <div id="confetti" aria-hidden="true"></div>
 
     <footer class="site-footer">
         <a class="star-link" href="https://github.com/Philemon12421/Uncomplete-Ludo-app" target="_blank" rel="noopener noreferrer">
@@ -137,11 +158,11 @@
     <div id="cookie-banner" class="cookie hidden" role="dialog" aria-labelledby="cookie-title" aria-describedby="cookie-desc">
         <div class="cookie-text">
             <strong id="cookie-title">Cookies &amp; local storage</strong>
-            <span id="cookie-desc">Ludoka uses a little storage on your device to keep the game working. If you allow it, we'll also remember your milestone progress. No ads, no tracking.</span>
+            <span id="cookie-desc">Ludoka uses a little storage on your device to keep the game working. If you allow it, we'll also remember your milestone progress and sound setting. No ads, no tracking.</span>
             <details>
                 <summary>More details</summary>
                 <p><b>Essential:</b> your choice on this banner and the offline cache that lets the game run without a connection.<br>
-                <b>Optional (Accept):</b> saves your unlocked milestone level in this browser.<br>
+                <b>Optional (Accept):</b> saves your unlocked milestone level and your sound on/off choice in this browser.<br>
                 Nothing is sent to us or to third parties. Choose "Essential only" and the game works the same, but progress isn't saved between visits. You can change your mind any time from "Cookie settings" in the footer.</p>
             </details>
         </div>
