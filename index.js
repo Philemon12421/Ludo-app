@@ -19,6 +19,7 @@ function el(tag, className) {
 /* ---------- Storage + cookie consent ---------- */
 const CONSENT_KEY = 'ludoka.consent';   // essential: remembers the banner choice
 const PROGRESS_KEY = 'ludoka.level';    // optional: only saved if the player accepts
+const SOUND_KEY = 'ludoka.sound';       // optional: only saved if the player accepts
 
 const store = {
     get(key) {
@@ -33,6 +34,116 @@ const store = {
 };
 
 let consent = store.get(CONSENT_KEY); // 'all' | 'essential' | null
+let soundOn = !(consent === 'all' && store.get(SOUND_KEY) === 'off');
+
+/* ---------- Sound (synthesised with Web Audio, no audio files) ---------- */
+const sfx = (() => {
+    let ctx = null;
+
+    const ensure = () => {
+        if (!soundOn) return null;
+        if (!ctx) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            try { ctx = new AC(); } catch (e) { return null; }
+        }
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        return ctx;
+    };
+
+    const tone = (freq, dur, opts = {}) => {
+        const c = ensure();
+        if (!c) return;
+        const { type = 'sine', vol = 0.15, delay = 0, slideTo = null } = opts;
+        const t0 = c.currentTime + delay;
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, t0);
+        if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(gain).connect(c.destination);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.03);
+    };
+
+    const noise = (dur, vol, delay = 0, freq = 2000) => {
+        const c = ensure();
+        if (!c) return;
+        const len = Math.max(1, Math.floor(c.sampleRate * dur));
+        const buffer = c.createBuffer(1, len, c.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+        const src = c.createBufferSource();
+        src.buffer = buffer;
+        const filter = c.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = freq;
+        filter.Q.value = 1.2;
+        const gain = c.createGain();
+        const t0 = c.currentTime + delay;
+        gain.gain.setValueAtTime(vol, t0);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        src.connect(filter).connect(gain).connect(c.destination);
+        src.start(t0);
+    };
+
+    const run = (notes, step, opts = {}) => {
+        notes.forEach((freq, i) => tone(freq, opts.dur || step * 1.8, { ...opts, delay: (opts.delay || 0) + i * step }));
+    };
+
+    return {
+        unlock() { ensure(); },
+        click() { tone(720, 0.05, { type: 'triangle', vol: 0.06 }); },
+        roll() {
+            for (let i = 0; i < 6; i++) noise(0.05, 0.12, i * 0.08, 1200 + Math.random() * 1800);
+            tone(150, 0.14, { vol: 0.18, delay: 0.5, slideTo: 80 });
+        },
+        step(i = 0) { tone(480 + i * 40, 0.06, { type: 'triangle', vol: 0.09 }); },
+        enter() { tone(392, 0.18, { vol: 0.14, slideTo: 784 }); },
+        capture() {
+            tone(320, 0.35, { type: 'sawtooth', vol: 0.12, slideTo: 70 });
+            noise(0.2, 0.1, 0, 600);
+        },
+        home() { run([523, 659, 784, 1047], 0.09, { vol: 0.14 }); },
+        noMove() { tone(220, 0.18, { vol: 0.08, slideTo: 160 }); },
+        turn() { tone(660, 0.09, { vol: 0.06 }); },
+        place(n) {
+            if (n === 1) {
+                run([523, 659, 784, 1047], 0.12, { type: 'triangle', vol: 0.16 });
+                [784, 1047, 1319, 1568].forEach((f) => tone(f, 0.9, { vol: 0.09, delay: 0.55 }));
+            } else {
+                run([523, 659, 784], 0.12, { type: 'triangle', vol: 0.14 });
+            }
+        }
+    };
+})();
+
+function vibrate(pattern) {
+    if (soundOn && navigator.vibrate) {
+        try { navigator.vibrate(pattern); } catch (e) { /* not supported */ }
+    }
+}
+
+/* ---------- Confetti ---------- */
+function burstConfetti(count) {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const layer = $('confetti');
+    const colors = ['#e53935', '#43a047', '#fdd835', '#1e88e5', '#ffffff'];
+    for (let i = 0; i < count; i++) {
+        const piece = el('i');
+        piece.style.left = `${Math.random() * 100}vw`;
+        piece.style.background = pick(colors);
+        piece.style.setProperty('--dx', `${Math.round(Math.random() * 160 - 80)}px`);
+        piece.style.setProperty('--r', `${Math.round(Math.random() * 720 - 360)}deg`);
+        piece.style.animationDuration = `${(2.2 + Math.random() * 1.6).toFixed(2)}s`;
+        piece.style.animationDelay = `${(Math.random() * 0.4).toFixed(2)}s`;
+        layer.appendChild(piece);
+        setTimeout(() => piece.remove(), 4600);
+    }
+}
 
 /* ---------- Screens ---------- */
 const mainMenu = $('main-menu');
@@ -40,6 +151,7 @@ const roadmapScreen = $('roadmap-screen');
 const matchmakingScreen = $('matchmaking-screen');
 const gameScreen = $('game-screen');
 const winnerModal = $('winner-modal');
+const placeModal = $('place-modal');
 
 function showScreen(screen) {
     document.querySelectorAll('.screen').forEach((s) => {
@@ -48,6 +160,7 @@ function showScreen(screen) {
     });
     screen.classList.remove('hidden');
     screen.classList.add('active');
+    document.body.classList.toggle('in-game', screen === gameScreen);
     window.scrollTo(0, 0);
 }
 
@@ -58,6 +171,8 @@ const SAFE = new Set([0, 8, 13, 21, 26, 34, 39, 47]);         // start squares +
 const RING_END = 50;   // last ring position a token visits (positions 0..50)
 const FINISH = 56;     // 51..55 = home column, 56 = centre
 const GRID = 15;
+const ORD = ['1st', '2nd', '3rd', '4th'];
+const MEDALS = ['🥇', '🥈', '🥉', '🏅'];
 
 // The 52 squares of the shared track, clockwise, starting at Red's start square. [x, y]
 const RING = [
@@ -111,10 +226,11 @@ COLORS.forEach((color) => {
 let mode = null;          // 'offline' (vs computer) | 'local' (pass & play)
 let current = 0;          // index into COLORS
 let diceValue = 1;
-let phase = 'idle';       // idle | roll | rolling | move | animating | over
+let phase = 'idle';       // idle | roll | rolling | move | animating | celebrate | over
 let session = 0;          // bumped on every start/quit so stale async work stops
 let playLevel = 1;        // difficulty of the computer players
 let validIdx = [];        // token indexes the current player may move
+let finished = [];        // colours in the order they brought all four tokens home
 
 const tokenEls = {};
 
@@ -278,6 +394,11 @@ function isHuman(playerIndex) {
     return mode === 'local' || (mode === 'offline' && playerIndex === 0);
 }
 
+function displayName(color) {
+    if (mode === 'offline') return color === 'Red' ? 'You' : `${color} (computer)`;
+    return color;
+}
+
 function buildPlayers() {
     const wrap = $('players');
     wrap.innerHTML = '';
@@ -297,10 +418,13 @@ function buildPlayers() {
 function updatePlayers() {
     COLORS.forEach((color, i) => {
         const chip = $(`chip-${color.toLowerCase()}`);
-        chip.classList.toggle('active', i === current && phase !== 'over' && phase !== 'idle');
+        const place = finished.indexOf(color) + 1;
+        const playing = phase !== 'over' && phase !== 'idle' && phase !== 'celebrate';
+        chip.classList.toggle('active', i === current && place === 0 && playing);
+        chip.classList.toggle('done', place > 0);
         chip.querySelector('.chip-role').textContent = mode === 'offline' ? (i === 0 ? 'You' : 'Computer') : 'Player ' + (i + 1);
         const home = tokens[color].filter((t) => t.pos === FINISH).length;
-        chip.querySelector('.chip-count').textContent = `${home}/4 home`;
+        chip.querySelector('.chip-count').textContent = place > 0 ? `${MEDALS[place - 1]} ${ORD[place - 1]}` : `${home}/4 home`;
     });
 }
 
@@ -417,6 +541,10 @@ function isThreatened(color, pos) {
     }));
 }
 
+function progress(color) {
+    return tokens[color].reduce((sum, t) => sum + t.pos + 1, 0);
+}
+
 /* ---------- Computer player ---------- */
 function scoreMove(color, i) {
     const t = tokens[color][i];
@@ -456,9 +584,11 @@ function startGame(newMode, level) {
     diceValue = 1;
     phase = 'idle';
     validIdx = [];
+    finished = [];
     COLORS.forEach((c) => tokens[c].forEach((t) => { t.pos = -1; }));
 
     winnerModal.classList.add('hidden');
+    placeModal.classList.add('hidden');
     showScreen(gameScreen);
     buildTokens();
     buildPlayers();
@@ -478,6 +608,7 @@ function beginTurn() {
 
     if (isHuman(current)) {
         setStatus(`${COLORS[current]}, roll the dice.`);
+        sfx.turn();
     } else {
         setStatus(`${COLORS[current]} (computer) is thinking…`);
         sleep(900).then(() => { if (s === session) doRoll(); });
@@ -485,7 +616,10 @@ function beginTurn() {
 }
 
 function nextTurn() {
-    current = (current + 1) % 4;
+    for (let n = 0; n < 4; n++) {
+        current = (current + 1) % 4;
+        if (!finished.includes(COLORS[current])) break;
+    }
     beginTurn();
 }
 
@@ -495,6 +629,8 @@ async function doRoll() {
     phase = 'rolling';
     rollBtn.disabled = true;
     diceEl.classList.add('rolling');
+    sfx.roll();
+    vibrate(15);
 
     const finalValue = randInt(1, 6);
     for (let i = 0; i < 6; i++) {
@@ -512,6 +648,7 @@ async function doRoll() {
 
     if (validIdx.length === 0) {
         setStatus(`${color} rolled a ${diceValue}. No moves available.`);
+        sfx.noMove();
         await sleep(1000);
         if (s !== session) return;
         nextTurn();
@@ -558,11 +695,13 @@ async function doMove(index) {
 
     if (token.pos === -1) {
         token.pos = 0;
+        sfx.enter();
         updateBoard();
         await sleep(280);
     } else {
         for (let step = 0; step < diceValue; step++) {
             token.pos += 1;
+            sfx.step(step);
             updateBoard();
             await sleep(170);
             if (s !== session) return;
@@ -572,6 +711,8 @@ async function doMove(index) {
 
     const captured = resolveCapture(color, token);
     if (captured) {
+        sfx.capture();
+        vibrate([40, 30, 60]);
         updateBoard();
         updatePlayers();
         setStatus(`${color} captured ${captured === 1 ? 'a token' : captured + ' tokens'}!`);
@@ -582,11 +723,13 @@ async function doMove(index) {
     updatePlayers();
 
     if (tokens[color].every((t) => t.pos === FINISH)) {
-        finishGame(color);
+        playerFinished(color);
         return;
     }
 
     const reachedHome = token.pos === FINISH;
+    if (reachedHome) sfx.home();
+
     if (diceValue === 6 || captured || reachedHome) {
         const why = diceValue === 6 ? 'a 6' : captured ? 'a capture' : 'getting home';
         beginTurn();
@@ -596,33 +739,118 @@ async function doMove(index) {
     }
 }
 
-function finishGame(color) {
-    phase = 'over';
+/* ---------- Finishing places ---------- */
+function placeCopy(color, place) {
+    const ord = ORD[place - 1];
+    if (mode === 'offline' && color === 'Red') {
+        return {
+            title: place === 1 ? 'Congratulations, you win!' : `Well done! You finished ${ord}`,
+            sub: place === 1 ? 'You brought all four tokens home first.' : 'All four of your tokens are home.'
+        };
+    }
+    if (mode === 'local') {
+        return {
+            title: `Congratulations, ${color}!`,
+            sub: `${color} takes ${ord} place.`
+        };
+    }
+    return {
+        title: `${displayName(color)} finishes ${ord}`,
+        sub: place === 1 ? 'Better luck next time.' : 'The game continues.'
+    };
+}
+
+function playerFinished(color) {
+    finished.push(color);
+    const place = finished.length;
+    phase = 'celebrate';
     rollBtn.disabled = true;
     updateBoard();
     updatePlayers();
 
-    const humanWon = mode === 'offline' && color === 'Red';
-    $('winner-text').textContent = mode === 'offline'
-        ? (humanWon ? 'You win!' : `${color} (computer) wins`)
-        : `${color} wins!`;
+    const copy = placeCopy(color, place);
+    $('place-medal').textContent = MEDALS[place - 1];
+    $('place-title').textContent = copy.title;
+    $('place-sub').textContent = copy.sub;
 
+    const remaining = COLORS.filter((c) => !finished.includes(c));
+    const humanDone = mode === 'offline' && color === 'Red' && remaining.length > 1;
+    $('btn-place-skip').classList.toggle('hidden', !humanDone);
+    $('btn-place-continue').textContent = remaining.length <= 1 ? 'See results' : 'Continue';
+
+    setStatus(`${displayName(color)} finished ${ORD[place - 1]}.`);
+    placeModal.classList.remove('hidden');
+    $('btn-place-continue').focus();
+    sfx.place(place);
+    vibrate(place === 1 ? [60, 40, 60, 40, 120] : [60, 40, 60]);
+    burstConfetti(place === 1 ? 90 : 40);
+}
+
+function continueAfterPlace() {
+    if (phase !== 'celebrate') return;
+    placeModal.classList.add('hidden');
+    const remaining = COLORS.filter((c) => !finished.includes(c));
+    if (remaining.length <= 1) endGame();
+    else nextTurn();
+}
+
+function endGame() {
+    session += 1;
+    phase = 'over';
+    rollBtn.disabled = true;
+    placeModal.classList.add('hidden');
+
+    // Anyone still playing is ranked by how far along they are
+    const rest = COLORS.filter((c) => !finished.includes(c)).sort((a, b) => progress(b) - progress(a));
+    const order = finished.concat(rest);
+
+    const list = $('standings');
+    list.innerHTML = '';
+    order.forEach((color, i) => {
+        const li = el('li');
+        li.style.setProperty('--c', `var(--${color.toLowerCase()})`);
+        const medal = el('span', 'st-medal');
+        medal.textContent = MEDALS[i];
+        const who = el('span', 'st-who');
+        who.textContent = displayName(color);
+        const ord = el('span', 'st-ord');
+        ord.textContent = ORD[i];
+        li.append(medal, who, ord);
+        list.appendChild(li);
+    });
+
+    const humanWon = mode === 'offline' && order[0] === 'Red';
     let sub = '';
-    if (humanWon) {
-        if (playLevel === unlockedLevel && unlockedLevel < TOTAL_LEVELS) {
-            unlockedLevel += 1;
-            saveProgress();
-            sub = `Level ${unlockedLevel} unlocked.`;
-        } else if (playLevel >= TOTAL_LEVELS) {
-            sub = 'You cleared the top level!';
+    let title = 'Final standings';
+    if (mode === 'offline') {
+        const myPlace = order.indexOf('Red') + 1;
+        if (humanWon) {
+            title = 'You won!';
+            sub = 'Great game.';
+            if (playLevel === unlockedLevel && unlockedLevel < TOTAL_LEVELS) {
+                unlockedLevel += 1;
+                saveProgress();
+                sub = `Level ${unlockedLevel} unlocked.`;
+            } else if (playLevel >= TOTAL_LEVELS) {
+                sub = 'You cleared the top level!';
+            }
+        } else {
+            sub = `You finished ${ORD[myPlace - 1]}. Win the game to unlock the next level.`;
         }
-    } else if (mode === 'offline') {
-        sub = 'Better luck next time.';
+    } else {
+        sub = `${order[0]} won the game.`;
     }
+
+    $('winner-text').textContent = title;
     $('winner-sub').textContent = sub;
-    setStatus(`${color} wins the game.`);
+    setStatus('Game over.');
+    updatePlayers();
     winnerModal.classList.remove('hidden');
     $('btn-play-again').focus();
+    if (humanWon) {
+        sfx.place(1);
+        burstConfetti(70);
+    }
 }
 
 /* ---------- Roadmap ---------- */
@@ -664,15 +892,45 @@ function leaveGame() {
     session += 1;
     phase = 'idle';
     winnerModal.classList.add('hidden');
+    placeModal.classList.add('hidden');
     showScreen(mainMenu);
 }
 
 $('btn-back-to-menu').addEventListener('click', leaveGame);
 $('btn-winner-menu').addEventListener('click', leaveGame);
 $('btn-play-again').addEventListener('click', () => startGame(mode, playLevel));
+$('btn-place-continue').addEventListener('click', continueAfterPlace);
+$('btn-place-skip').addEventListener('click', () => { if (phase === 'celebrate') endGame(); });
 
 rollBtn.addEventListener('click', () => { if (isHuman(current)) doRoll(); });
 diceEl.addEventListener('click', () => { if (phase === 'roll' && isHuman(current)) doRoll(); });
+
+/* ---------- Sound toggle ---------- */
+const soundBtn = $('btn-sound');
+
+function renderSoundButton() {
+    soundBtn.classList.toggle('muted', !soundOn);
+    soundBtn.setAttribute('aria-pressed', String(soundOn));
+}
+
+soundBtn.addEventListener('click', () => {
+    soundOn = !soundOn;
+    if (consent === 'all') store.set(SOUND_KEY, soundOn ? 'on' : 'off');
+    renderSoundButton();
+    if (soundOn) {
+        sfx.unlock();
+        sfx.click();
+    }
+});
+
+// Browsers only allow audio after a user gesture
+document.addEventListener('pointerdown', () => sfx.unlock(), { passive: true });
+
+// Light click feedback on menu buttons (the dice and roll button have their own sound)
+document.addEventListener('click', (event) => {
+    const target = event.target.closest('.btn, .roadmap-node, .link-btn');
+    if (target && target.id !== 'btn-roll' && target.id !== 'btn-sound') sfx.click();
+});
 
 /* ---------- Cookie banner ---------- */
 const banner = $('cookie-banner');
@@ -680,8 +938,13 @@ const banner = $('cookie-banner');
 function setConsent(value) {
     consent = value;
     store.set(CONSENT_KEY, value);
-    if (value === 'all') saveProgress();
-    else store.remove(PROGRESS_KEY);
+    if (value === 'all') {
+        saveProgress();
+        store.set(SOUND_KEY, soundOn ? 'on' : 'off');
+    } else {
+        store.remove(PROGRESS_KEY);
+        store.remove(SOUND_KEY);
+    }
     banner.classList.add('hidden');
 }
 
@@ -725,6 +988,7 @@ if ('serviceWorker' in navigator) {
 
 /* ---------- Init ---------- */
 $('year').textContent = String(new Date().getFullYear());
+renderSoundButton();
 buildBoard();
 buildDice();
 renderDice(1);
