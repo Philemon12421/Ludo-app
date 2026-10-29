@@ -406,11 +406,17 @@ function buildPlayers() {
         const chip = el('div', 'chip');
         chip.id = `chip-${color.toLowerCase()}`;
         chip.style.setProperty('--c', `var(--${color.toLowerCase()})`);
+        const avatar = el('span', 'chip-token');
+        avatar.setAttribute('aria-hidden', 'true');
+        const body = el('span', 'chip-body');
         const name = el('span', 'chip-name');
         name.textContent = color;
         const role = el('span', 'chip-role');
-        const count = el('span', 'chip-count');
-        chip.append(name, role, count);
+        const dots = el('span', 'chip-dots');
+        dots.setAttribute('aria-hidden', 'true');
+        for (let d = 0; d < 4; d++) dots.appendChild(el('i'));
+        body.append(name, role, dots);
+        chip.append(avatar, body);
         wrap.appendChild(chip);
     });
 }
@@ -421,10 +427,15 @@ function updatePlayers() {
         const place = finished.indexOf(color) + 1;
         const playing = phase !== 'over' && phase !== 'idle' && phase !== 'celebrate';
         chip.classList.toggle('active', i === current && place === 0 && playing);
+        chip.setAttribute('role', 'group');
         chip.classList.toggle('done', place > 0);
         chip.querySelector('.chip-role').textContent = mode === 'offline' ? (i === 0 ? 'You' : 'Computer') : 'Player ' + (i + 1);
         const home = tokens[color].filter((t) => t.pos === FINISH).length;
-        chip.querySelector('.chip-count').textContent = place > 0 ? `${MEDALS[place - 1]} ${ORD[place - 1]}` : `${home}/4 home`;
+        chip.querySelectorAll('.chip-dots i').forEach((dot, d) => dot.classList.toggle('on', d < home));
+        chip.querySelector('.chip-token').textContent = place > 0 ? MEDALS[place - 1] : '';
+        chip.setAttribute('aria-label', place > 0
+            ? `${color}, finished ${ORD[place - 1]}`
+            : `${color}, ${home} of 4 tokens home${i === current && playing ? ', playing now' : ''}`);
     });
 }
 
