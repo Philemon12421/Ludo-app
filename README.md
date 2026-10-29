@@ -11,6 +11,8 @@ A classic Ludo game that runs in your browser. Play against the computer, pass t
 - **Classic board:** bright flat colours, star safe squares, coloured home columns, entry arrows and a four-triangle centre.
 - **Play vs Computer:** three computer opponents that get smarter as you climb the milestone levels.
 - **Pass & Play:** 2–4 players sharing one device.
+- **Sound:** dice rolls, token steps, captures, getting home and win fanfares, all synthesised in the browser (no audio files). A speaker button in the header mutes everything.
+- **Congratulations pop-ups:** every player who brings all four tokens home gets a medal pop-up (1st, 2nd, 3rd), followed by a final standings screen.
 - **Milestones:** ten levels. Beat the computer to unlock the next one.
 - **Installable (PWA):** add it to your home screen or desktop and play offline.
 - **Responsive:** built for phones first, with a side-by-side layout on desktop.
@@ -24,14 +26,14 @@ A classic Ludo game that runs in your browser. Play against the computer, pass t
 3. Your start square and the starred squares are **safe**.
 4. Land on an opponent's token (off a safe square) to **send it back to base**.
 5. A **6**, a **capture**, or getting a token **home** gives you another roll.
-6. The first player to bring all four tokens to the centre wins.
+6. The first player to bring all four tokens to the centre wins. The game carries on until 1st, 2nd and 3rd place are decided.
 
 ## Run it locally
 
 No build step and no dependencies. Serve the folder with any static server:
 
 ```bash
-git clone https://github.com/Philemon12421/Ludo-app.git
+git clone https://github.com/Philemon12421/Uncomplete-Ludo-app.git
 cd Uncomplete-Ludo-app
 
 # Option 1: Python
@@ -75,7 +77,7 @@ Then open `http://localhost:8000`. Service workers work on `localhost`, so you c
 On the first visit a small banner asks for a choice:
 
 - **Essential only:** the game works fully. Only your banner choice and the offline cache are stored.
-- **Accept:** also saves your unlocked milestone level in this browser's local storage.
+- **Accept:** also saves your unlocked milestone level and sound on/off choice in this browser's local storage.
 
 Nothing is sent to a server. "Cookie settings" in the footer lets you change your choice at any time.
 
@@ -92,7 +94,6 @@ If you host under a different domain, update the URLs in `index.html` (`canonica
 ## Roadmap
 
 - [ ] Real-time online matches
-- [ ] Sound effects and haptics
 - [ ] Choose the number of computer opponents and difficulty
 - [ ] Saved games and statistics
 - [ ] Additional board themes
