@@ -39,13 +39,27 @@ let soundOn = !(consent === 'all' && store.get(SOUND_KEY) === 'off');
 /* ---------- Sound (synthesised with Web Audio, no audio files) ---------- */
 const sfx = (() => {
     let ctx = null;
+    let master = null;
+    const MASTER_VOLUME = 3.2;   // raise or lower the overall loudness here
 
     const ensure = () => {
         if (!soundOn) return null;
         if (!ctx) {
             const AC = window.AudioContext || window.webkitAudioContext;
             if (!AC) return null;
-            try { ctx = new AC(); } catch (e) { return null; }
+            try {
+                ctx = new AC();
+                // master volume boost, then a compressor so louder sounds don't distort
+                master = ctx.createGain();
+                master.gain.value = MASTER_VOLUME;
+                const limiter = ctx.createDynamicsCompressor();
+                limiter.threshold.value = -14;
+                limiter.knee.value = 12;
+                limiter.ratio.value = 8;
+                limiter.attack.value = 0.003;
+                limiter.release.value = 0.2;
+                master.connect(limiter).connect(ctx.destination);
+            } catch (e) { ctx = null; return null; }
         }
         if (ctx.state === 'suspended') ctx.resume().catch(() => {});
         return ctx;
@@ -64,7 +78,7 @@ const sfx = (() => {
         gain.gain.setValueAtTime(0.0001, t0);
         gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
         gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-        osc.connect(gain).connect(c.destination);
+        osc.connect(gain).connect(master);
         osc.start(t0);
         osc.stop(t0 + dur + 0.03);
     };
@@ -86,7 +100,7 @@ const sfx = (() => {
         const t0 = c.currentTime + delay;
         gain.gain.setValueAtTime(vol, t0);
         gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-        src.connect(filter).connect(gain).connect(c.destination);
+        src.connect(filter).connect(gain).connect(master);
         src.start(t0);
     };
 
