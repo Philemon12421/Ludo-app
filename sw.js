@@ -3,7 +3,7 @@
    instantly (and offline) and picks up new deployments on the next visit.
    Bump VERSION to force old caches to be cleared. */
 
-const VERSION = 'ludoka-v4';
+const VERSION = 'ludoka-v5';
 const PRECACHE = [
     '/',
     '/index.html',
