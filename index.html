@@ -31,6 +31,30 @@
     <link rel="stylesheet" href="index.css">
 </head>
 <body>
+    <!-- Splash screen: 3D tumbling dice while the game loads -->
+    <div id="splash" class="splash" role="status" aria-label="Loading Ludoka">
+        <div class="splash-inner">
+            <div class="scene" aria-hidden="true">
+                <div class="cube-wrap">
+                    <div class="cube">
+                        <div class="face f1"></div>
+                        <div class="face f2"></div>
+                        <div class="face f3"></div>
+                        <div class="face f4"></div>
+                        <div class="face f5"></div>
+                        <div class="face f6"></div>
+                    </div>
+                </div>
+                <div class="cube-shadow"></div>
+            </div>
+            <div class="splash-title" aria-hidden="true">
+                <span class="l-r">L</span><span class="l-g">U</span><span class="l-y">D</span><span class="l-b">O</span><span class="l-r">K</span><span class="l-g">A</span>
+            </div>
+            <div class="splash-bar" aria-hidden="true"><span></span></div>
+            <p class="splash-text">Loading…</p>
+        </div>
+    </div>
+
     <header class="site-header">
         <div class="brand">
             <img src="/icons/favicon.svg" alt="" width="34" height="34">
