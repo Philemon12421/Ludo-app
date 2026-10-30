@@ -1011,6 +1011,30 @@ if ('serviceWorker' in navigator) {
     });
 }
 
+/* ---------- Splash screen ---------- */
+const splash = $('splash');
+const splashStart = performance.now();
+const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const SPLASH_MIN_MS = reduceMotion ? 500 : 1900;   // how long the splash shows at least
+let splashGone = false;
+
+function hideSplash() {
+    if (splashGone || !splash) return;
+    splashGone = true;
+    splash.classList.add('hide');
+    setTimeout(() => splash.remove(), 700);
+}
+
+splash.addEventListener('click', hideSplash);   // tap to skip
+
+function scheduleSplashHide() {
+    const wait = Math.max(0, SPLASH_MIN_MS - (performance.now() - splashStart));
+    setTimeout(hideSplash, wait);
+}
+
+if (document.readyState === 'complete') scheduleSplashHide();
+else window.addEventListener('load', scheduleSplashHide);
+
 /* ---------- Init ---------- */
 $('year').textContent = String(new Date().getFullYear());
 renderSoundButton();
