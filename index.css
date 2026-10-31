@@ -1341,30 +1341,6 @@ button,
     }
 }
 
-/* Two or more tokens of one colour on a square form a wall */
-.token.in-block {
-    outline: calc(var(--cell) * 0.07) solid #1b1740;
-    outline-offset: calc(var(--cell) * 0.02);
-}
-
-.token.block-lead::after {
-    content: attr(data-stack);
-    position: absolute;
-    top: -26%;
-    right: -26%;
-    width: calc(var(--cell) * 0.5);
-    height: calc(var(--cell) * 0.5);
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font-size: calc(var(--cell) * 0.34);
-    font-weight: 800;
-    line-height: 1;
-    color: #fff;
-    background: #1b1740;
-    box-shadow: 0 0 0 calc(var(--cell) * 0.04) #fff;
-}
-
 @media (max-width: 640px) {
     .rules-badge {
         display: none;
