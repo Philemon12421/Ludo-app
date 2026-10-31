@@ -1,7 +1,7 @@
 'use strict';
 
 /* =========================================================
-   Ludoka – classic Ludo
+   Ludoka – Africa Ludo & Foreign (classic) Ludo
    ========================================================= */
 
 /* ---------- Small helpers ---------- */
@@ -20,6 +20,7 @@ function el(tag, className) {
 const CONSENT_KEY = 'ludoka.consent';   // essential: remembers the banner choice
 const PROGRESS_KEY = 'ludoka.level';    // optional: only saved if the player accepts
 const SOUND_KEY = 'ludoka.sound';       // optional: only saved if the player accepts
+const RULES_KEY = 'ludoka.rules';       // optional: only saved if the player accepts
 
 const store = {
     get(key) {
@@ -231,10 +232,39 @@ const BASE_SLOTS = {
 // The cell just before each colour's home column (gets an arrow). Ring indices.
 const ARROW_CELLS = { 50: 'red', 11: 'green', 24: 'yellow', 37: 'blue' };
 
+// Ring index of the last track square before each colour's home column
+const LANE_ENTRY = {};
+COLORS.forEach((c) => { LANE_ENTRY[c] = (START[c] + RING_END) % 52; });
+
+/* ---------- Rule sets ---------- */
+const RULES = {
+    classic: {
+        name: 'Foreign Ludo',
+        desc: 'The classic rules: safe star squares, one lap around the board, then home.',
+        safeSquares: true,
+        blocks: false,
+        backCapture: false,
+        laneCapture: false
+    },
+    africa: {
+        name: 'Africa Ludo',
+        desc: 'No safe squares. Two tokens of a colour form a wall nobody can pass. Capture backwards, or inside a home lane, and your token goes straight home.',
+        safeSquares: false,
+        blocks: true,
+        backCapture: true,
+        laneCapture: true
+    }
+};
+
+let rulesKey = (consent === 'all' && store.get(RULES_KEY) === 'classic') ? 'classic' : 'africa';
+let rules = RULES[rulesKey];
+
+const isSafe = (ringIdx) => rules.safeSquares && SAFE.has(ringIdx);
+
 /* ---------- Game state ---------- */
 const tokens = {};
 COLORS.forEach((color) => {
-    tokens[color] = [0, 1, 2, 3].map((i) => ({ id: `${color[0]}${i + 1}`, pos: -1 }));
+    tokens[color] = [0, 1, 2, 3].map((i) => ({ id: `${color[0]}${i + 1}`, pos: -1, vis: null }));
 });
 
 let mode = null;          // 'offline' (vs computer) | 'local' (pass & play)
@@ -243,7 +273,7 @@ let diceValue = 1;
 let phase = 'idle';       // idle | roll | rolling | move | animating | celebrate | over
 let session = 0;          // bumped on every start/quit so stale async work stops
 let playLevel = 1;        // difficulty of the computer players
-let validIdx = [];        // token indexes the current player may move
+let options = [];         // moves the current player may choose from after a roll
 let finished = [];        // colours in the order they brought all four tokens home
 
 const tokenEls = {};
@@ -328,13 +358,12 @@ function ringIndex(color, pos) {
     return pos >= 0 && pos <= RING_END ? (pos + START[color]) % 52 : null;
 }
 
+const ringPoint = (idx) => [RING[idx][0] + 0.5, RING[idx][1] + 0.5];
+
 // Point (in cell units) where a token should be drawn
 function pointFor(color, index, pos) {
     if (pos === -1) return BASE_SLOTS[color][index];
-    if (pos <= RING_END) {
-        const [x, y] = RING[ringIndex(color, pos)];
-        return [x + 0.5, y + 0.5];
-    }
+    if (pos <= RING_END) return ringPoint(ringIndex(color, pos));
     if (pos < FINISH) {
         const [x, y] = HOME_COLUMN[color][pos - 51];
         return [x + 0.5, y + 0.5];
@@ -347,9 +376,10 @@ function updateBoard() {
     const groups = new Map();
     COLORS.forEach((color) => {
         tokens[color].forEach((t, i) => {
-            const [px, py] = pointFor(color, i, t.pos);
+            const [px, py] = t.vis || pointFor(color, i, t.pos);
             let key;
-            if (t.pos === -1) key = `base-${t.id}`;
+            if (t.vis) key = `${px},${py}`;
+            else if (t.pos === -1) key = `base-${t.id}`;
             else if (t.pos === FINISH) key = `fin-${color}`;
             else key = `${px},${py}`;
             if (!groups.has(key)) groups.set(key, []);
@@ -359,6 +389,9 @@ function updateBoard() {
 
     groups.forEach((members, key) => {
         const n = members.length;
+        // two or more tokens of one colour on a track square = a block (Africa rules)
+        const isBlock = rules.blocks && n >= 2 && !key.startsWith('base-') && !key.startsWith('fin-')
+            && members.every((m) => m.color === members[0].color);
         members.forEach((m, k) => {
             let ox = 0;
             let oy = 0;
@@ -379,28 +412,37 @@ function updateBoard() {
             const node = tokenEls[t.id];
             node.style.left = `${((m.px + ox) / GRID) * 100}%`;
             node.style.top = `${((m.py + oy) / GRID) * 100}%`;
+            node.classList.toggle('in-block', isBlock);
+            node.classList.toggle('block-lead', isBlock && k === 0);
+            if (isBlock && k === 0) node.dataset.stack = String(n);
         });
     });
 
     // Which tokens can be clicked right now
     const color = COLORS[current];
+    const canAct = phase === 'move' && isHuman(current);
+    const fwdFrom = new Set(options.filter((o) => o.kind === 'fwd').map((o) => o.fromPos));
+    const targets = new Set(options.filter((o) => o.victim).map((o) => `${o.victim.c}:${o.victim.i}`));
     COLORS.forEach((c) => {
         tokens[c].forEach((t, i) => {
             const node = tokenEls[t.id];
-            const can = phase === 'move' && isHuman(current) && c === color && validIdx.includes(i);
-            node.disabled = !can;
-            node.classList.toggle('movable', can);
-            node.setAttribute('aria-label', tokenLabel(c, i, t.pos, can));
+            const movable = canAct && c === color && fwdFrom.has(t.pos);
+            const target = canAct && targets.has(`${c}:${i}`);
+            node.disabled = !(movable || target);
+            node.classList.toggle('movable', movable);
+            node.classList.toggle('target', target);
+            node.setAttribute('aria-label', tokenLabel(c, i, t.pos, movable, target));
         });
     });
 }
 
-function tokenLabel(color, i, pos, can) {
+function tokenLabel(color, i, pos, movable, target) {
     let where = 'on the board';
     if (pos === -1) where = 'in base';
     else if (pos === FINISH) where = 'home';
     else if (pos > RING_END) where = 'in the home column';
-    return `${color} token ${i + 1}, ${where}${can ? ', can move' : ''}`;
+    const extra = target ? ', can be captured' : movable ? ', can move' : '';
+    return `${color} token ${i + 1}, ${where}${extra}`;
 }
 
 /* ---------- Players ---------- */
@@ -441,8 +483,8 @@ function updatePlayers() {
         const place = finished.indexOf(color) + 1;
         const playing = phase !== 'over' && phase !== 'idle' && phase !== 'celebrate';
         chip.classList.toggle('active', i === current && place === 0 && playing);
-        chip.setAttribute('role', 'group');
         chip.classList.toggle('done', place > 0);
+        chip.setAttribute('role', 'group');
         chip.querySelector('.chip-role').textContent = mode === 'offline' ? (i === 0 ? 'You' : 'Computer') : 'Player ' + (i + 1);
         const home = tokens[color].filter((t) => t.pos === FINISH).length;
         chip.querySelectorAll('.chip-dots i').forEach((dot, d) => dot.classList.toggle('on', d < home));
@@ -500,64 +542,127 @@ function tintDice() {
     diceEl.style.setProperty('--pip', `var(--${color}-d)`);
 }
 
-/* ---------- Rules helpers ---------- */
-function targetPos(token) {
-    if (token.pos === -1) return diceValue === 6 ? 0 : null;
-    const target = token.pos + diceValue;
-    return target <= FINISH ? target : null;
-}
+/* ---------- Rules engine ---------- */
 
-function validMoves(color) {
-    const list = [];
-    tokens[color].forEach((t, i) => {
-        if (targetPos(t) !== null) list.push(i);
-    });
-    return list;
-}
-
-// Tokens still in base are interchangeable, so only offer the first one as a distinct choice
-function uniqueMoves(color) {
-    let baseSeen = false;
-    return validMoves(color).filter((i) => {
-        if (tokens[color][i].pos !== -1) return true;
-        if (baseSeen) return false;
-        baseSeen = true;
-        return true;
-    });
-}
-
-function firstBaseToken(color) {
-    return tokens[color].findIndex((t) => t.pos === -1);
-}
-
-function opponentsAt(color, ringIdx) {
+// Every token of another colour standing on a track square
+function oppTokensAt(color, ringIdx) {
     const hits = [];
     COLORS.forEach((c) => {
         if (c === color) return;
-        tokens[c].forEach((t) => {
-            if (ringIndex(c, t.pos) === ringIdx) hits.push(t);
+        tokens[c].forEach((t, i) => {
+            if (ringIndex(c, t.pos) === ringIdx) hits.push({ c, i, t });
         });
     });
     return hits;
 }
 
+// Africa rules: two or more tokens of one other colour on a square are a wall
+function oppBlockOnRing(color, ringIdx) {
+    if (!rules.blocks) return false;
+    const counts = {};
+    return oppTokensAt(color, ringIdx).some(({ c }) => {
+        counts[c] = (counts[c] || 0) + 1;
+        return counts[c] >= 2;
+    });
+}
+
+// Position a token would reach by moving forward by the dice, or null if it can't
+function forwardTarget(color, token) {
+    if (token.pos === -1) {
+        if (diceValue !== 6) return null;
+        if (oppBlockOnRing(color, START[color])) return null;
+        return 0;
+    }
+    const target = token.pos + diceValue;
+    if (target > FINISH) return null;
+    if (rules.blocks) {
+        for (let q = token.pos + 1; q <= target; q++) {
+            if (q <= RING_END && oppBlockOnRing(color, ringIndex(color, q))) return null;
+        }
+    }
+    return target;
+}
+
+// Africa: moving backwards by the dice is only allowed if it lands on (and captures) a lone opponent
+function backVictim(color, token) {
+    const r = ringIndex(color, token.pos);
+    if (r === null) return null;
+    for (let k = 1; k < diceValue; k++) {
+        if (oppBlockOnRing(color, (r - k + 52) % 52)) return null;   // can't pass over a wall
+    }
+    const hits = oppTokensAt(color, (r - diceValue + 52) % 52);
+    return hits.length === 1 ? { c: hits[0].c, i: hits[0].i } : null;
+}
+
+// Africa: with the exact roll, a token can step into another colour's home lane and capture a token there
+function laneVictim(color, token) {
+    const r = ringIndex(color, token.pos);
+    if (r === null) return null;
+    for (const c2 of COLORS) {
+        if (c2 === color) continue;
+        const dist = (LANE_ENTRY[c2] - r + 52) % 52;      // track squares to the lane entrance
+        if (token.pos + dist > RING_END) continue;        // that entrance is not on this token's route
+        const lane = diceValue - dist;                     // which lane square the roll lands on (1..5)
+        if (lane < 1 || lane > 5) continue;
+        let blocked = false;
+        for (let k = 1; k <= dist; k++) {
+            if (oppBlockOnRing(color, (r + k) % 52)) { blocked = true; break; }
+        }
+        if (blocked) continue;
+        for (let l = 1; l < lane; l++) {                   // a wall inside the lane stops the way
+            if (tokens[c2].filter((t) => t.pos === 50 + l).length >= 2) { blocked = true; break; }
+        }
+        if (blocked) continue;
+        const there = tokens[c2].map((t, i) => ({ t, i })).filter(({ t }) => t.pos === 50 + lane);
+        if (there.length === 1) return { c: c2, i: there[0].i, dist, lane };
+    }
+    return null;
+}
+
+// All the different moves the current dice gives this colour
+function listMoves(color) {
+    const list = [];
+    const seen = new Set();
+    const add = (key, opt) => {
+        if (!seen.has(key)) {
+            seen.add(key);
+            list.push(opt);
+        }
+    };
+    tokens[color].forEach((t, i) => {
+        const to = forwardTarget(color, t);
+        if (to !== null) add(`f${t.pos}`, { kind: 'fwd', ti: i, fromPos: t.pos, to });
+        if (t.pos >= 0 && t.pos <= RING_END) {
+            if (rules.backCapture) {
+                const v = backVictim(color, t);
+                if (v) add(`b${t.pos}`, { kind: 'back', ti: i, fromPos: t.pos, victim: v });
+            }
+            if (rules.laneCapture) {
+                const v = laneVictim(color, t);
+                if (v) add(`l${t.pos}${v.c}`, { kind: 'lane', ti: i, fromPos: t.pos, victim: v, dist: v.dist, lane: v.lane });
+            }
+        }
+    });
+    return list;
+}
+
 function wouldCapture(color, pos) {
     const idx = ringIndex(color, pos);
-    if (idx === null || SAFE.has(idx)) return false;
-    return opponentsAt(color, idx).length > 0;
+    if (idx === null || isSafe(idx)) return false;
+    return oppTokensAt(color, idx).length > 0;
 }
 
 function resolveCapture(color, token) {
     const idx = ringIndex(color, token.pos);
-    if (idx === null || SAFE.has(idx)) return 0;
-    const victims = opponentsAt(color, idx);
-    victims.forEach((v) => { v.pos = -1; });
+    if (idx === null || isSafe(idx)) return 0;
+    const victims = oppTokensAt(color, idx);
+    victims.forEach((v) => { v.t.pos = -1; });
     return victims.length;
 }
 
 function isThreatened(color, pos) {
     const idx = ringIndex(color, pos);
-    if (idx === null || SAFE.has(idx)) return false;
+    if (idx === null || isSafe(idx)) return false;
     return COLORS.some((c) => c !== color && tokens[c].some((t) => {
         const oi = ringIndex(c, t.pos);
         if (oi === null) return false;
@@ -571,33 +676,55 @@ function progress(color) {
 }
 
 /* ---------- Computer player ---------- */
-function scoreMove(color, i) {
-    const t = tokens[color][i];
-    const to = targetPos(t);
+function scoreOption(color, o) {
+    if (o.kind !== 'fwd') return 200 + Math.random() * 5;   // a capture that sends the token straight home
+    const t = tokens[color][o.ti];
+    const to = o.to;
     let score = to * 0.3;
     if (to === FINISH) score += 100;
     if (wouldCapture(color, to)) score += 90;
     if (t.pos === -1) score += 60;
     if (to > RING_END && to < FINISH) score += 35;
     const idx = ringIndex(color, to);
-    if (idx !== null && SAFE.has(idx)) score += 30;
+    if (idx !== null && isSafe(idx)) score += 30;
     if (t.pos >= 0 && isThreatened(color, t.pos)) score += 20;
     if (idx !== null && isThreatened(color, to)) score -= 15;
+    if (rules.blocks && idx !== null && tokens[color].some((x) => x !== t && x.pos === to)) score += 25;   // build a wall
     return score + Math.random() * 5;
 }
 
 function aiChoose() {
     const color = COLORS[current];
-    const options = uniqueMoves(color);
     const smartness = Math.min(0.95, 0.25 + playLevel * 0.07);
     if (Math.random() > smartness) return pick(options);
     let best = options[0];
     let bestScore = -Infinity;
-    options.forEach((i) => {
-        const s = scoreMove(color, i);
-        if (s > bestScore) { bestScore = s; best = i; }
+    options.forEach((o) => {
+        const s = scoreOption(color, o);
+        if (s > bestScore) { bestScore = s; best = o; }
     });
     return best;
+}
+
+/* ---------- Rule picker ---------- */
+function applyRulesUI() {
+    document.querySelectorAll('.mode-opt').forEach((btn) => {
+        const on = btn.dataset.rules === rulesKey;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-checked', String(on));
+    });
+    $('mode-desc').textContent = rules.desc;
+    $('rules-badge').textContent = rules.name;
+    $('board').classList.toggle('no-safe', !rules.safeSquares);
+    document.querySelectorAll('.rules-africa').forEach((n) => n.classList.toggle('hidden', rulesKey !== 'africa'));
+}
+
+function setRules(key) {
+    if (!RULES[key]) return;
+    rulesKey = key;
+    rules = RULES[key];
+    if (consent === 'all') store.set(RULES_KEY, key);
+    applyRulesUI();
 }
 
 /* ---------- Turn flow ---------- */
@@ -608,12 +735,13 @@ function startGame(newMode, level) {
     current = 0;
     diceValue = 1;
     phase = 'idle';
-    validIdx = [];
+    options = [];
     finished = [];
-    COLORS.forEach((c) => tokens[c].forEach((t) => { t.pos = -1; }));
+    COLORS.forEach((c) => tokens[c].forEach((t) => { t.pos = -1; t.vis = null; }));
 
     winnerModal.classList.add('hidden');
     placeModal.classList.add('hidden');
+    applyRulesUI();
     showScreen(gameScreen);
     buildTokens();
     buildPlayers();
@@ -624,7 +752,7 @@ function startGame(newMode, level) {
 function beginTurn() {
     const s = session;
     phase = 'roll';
-    validIdx = [];
+    options = [];
     updateIndicator();
     tintDice();
     updatePlayers();
@@ -668,10 +796,9 @@ async function doRoll() {
     renderDice(diceValue);
 
     const color = COLORS[current];
-    validIdx = validMoves(color);
-    const unique = uniqueMoves(color);
+    options = listMoves(color);
 
-    if (validIdx.length === 0) {
+    if (options.length === 0) {
         setStatus(`${color} rolled a ${diceValue}. No moves available.`);
         sfx.noMove();
         await sleep(1000);
@@ -691,57 +818,115 @@ async function doRoll() {
         return;
     }
 
-    if (unique.length === 1) {
-        setStatus(`You rolled a ${diceValue}.`);
+    if (options.length === 1) {
+        const only = options[0];
+        setStatus(only.kind === 'fwd' ? `You rolled a ${diceValue}.` : `You rolled a ${diceValue}. Capture!`);
         await sleep(450);
         if (s !== session || phase !== 'move') return;
-        doMove(unique[0]);
+        doMove(only);
+    } else if (options.some((o) => o.victim)) {
+        setStatus(`You rolled a ${diceValue}. Tap a glowing token to move, or the red-ringed token to capture it.`);
     } else {
         setStatus(`You rolled a ${diceValue}. Choose a token to move.`);
     }
 }
 
 function onTokenClick(color, i) {
-    if (phase !== 'move' || !isHuman(current) || color !== COLORS[current]) return;
-    if (!validIdx.includes(i)) return;
+    if (phase !== 'move' || !isHuman(current)) return;
     const t = tokens[color][i];
-    doMove(t.pos === -1 ? firstBaseToken(color) : i);
+    let opt = null;
+    if (color === COLORS[current]) {
+        opt = options.find((o) => o.kind === 'fwd' && o.fromPos === t.pos);
+    } else {
+        opt = options.find((o) => o.victim && o.victim.c === color && o.victim.i === i);
+    }
+    if (opt) doMove(opt);
 }
 
-async function doMove(index) {
+// Move a token's drawing to a point for one animation step
+async function hop(token, point) {
+    token.vis = point;
+    updateBoard();
+    await sleep(170);
+}
+
+async function doMove(opt) {
     if (phase !== 'move') return;
     const s = session;
     const color = COLORS[current];
-    const token = tokens[color][index];
+    const token = tokens[color][opt.ti];
 
     phase = 'animating';
-    validIdx = [];
+    options = [];
     updateBoard();
 
-    if (token.pos === -1) {
-        token.pos = 0;
-        sfx.enter();
-        updateBoard();
-        await sleep(280);
-    } else {
-        for (let step = 0; step < diceValue; step++) {
-            token.pos += 1;
-            sfx.step(step);
+    let captured = 0;
+    let shortcut = false;      // true when the capture sends the token straight home
+    let note = '';
+
+    if (opt.kind === 'fwd') {
+        if (token.pos === -1) {
+            token.pos = 0;
+            sfx.enter();
             updateBoard();
-            await sleep(170);
+            await sleep(280);
+        } else {
+            for (let step = 0; step < diceValue; step++) {
+                token.pos += 1;
+                sfx.step(step);
+                updateBoard();
+                await sleep(170);
+                if (s !== session) return;
+            }
+        }
+        if (s !== session) return;
+        captured = resolveCapture(color, token);
+    } else if (opt.kind === 'back') {
+        const r0 = ringIndex(color, token.pos);
+        for (let k = 1; k <= diceValue; k++) {
+            sfx.step(k);
+            await hop(token, ringPoint((r0 - k + 52) % 52));
             if (s !== session) return;
         }
+        tokens[opt.victim.c][opt.victim.i].pos = -1;
+        captured = 1;
+        shortcut = true;
+        note = `${color} captured ${opt.victim.c} backwards and goes straight home!`;
+    } else {
+        const r0 = ringIndex(color, token.pos);
+        for (let k = 1; k <= opt.dist; k++) {
+            sfx.step(k);
+            await hop(token, ringPoint((r0 + k) % 52));
+            if (s !== session) return;
+        }
+        for (let l = 1; l <= opt.lane; l++) {
+            sfx.step(opt.dist + l);
+            const [x, y] = HOME_COLUMN[opt.victim.c][l - 1];
+            await hop(token, [x + 0.5, y + 0.5]);
+            if (s !== session) return;
+        }
+        tokens[opt.victim.c][opt.victim.i].pos = -1;
+        captured = 1;
+        shortcut = true;
+        note = `${color} captured ${opt.victim.c} in their home lane and goes straight home!`;
     }
-    if (s !== session) return;
 
-    const captured = resolveCapture(color, token);
     if (captured) {
         sfx.capture();
         vibrate([40, 30, 60]);
         updateBoard();
         updatePlayers();
-        setStatus(`${color} captured ${captured === 1 ? 'a token' : captured + ' tokens'}!`);
-        await sleep(600);
+        setStatus(note || `${color} captured ${captured === 1 ? 'a token' : captured + ' tokens'}!`);
+        await sleep(shortcut ? 800 : 600);
+        if (s !== session) return;
+    }
+
+    if (shortcut) {
+        token.vis = null;
+        token.pos = FINISH;
+        sfx.home();
+        updateBoard();
+        await sleep(350);
         if (s !== session) return;
     }
 
@@ -753,7 +938,7 @@ async function doMove(index) {
     }
 
     const reachedHome = token.pos === FINISH;
-    if (reachedHome) sfx.home();
+    if (reachedHome && !shortcut) sfx.home();
 
     if (diceValue === 6 || captured || reachedHome) {
         const why = diceValue === 6 ? 'a 6' : captured ? 'a capture' : 'getting home';
@@ -913,6 +1098,10 @@ $('btn-cancel-matchmaking').addEventListener('click', () => showScreen(mainMenu)
 $('btn-roadmap').addEventListener('click', () => { renderRoadmap(); showScreen(roadmapScreen); });
 $('btn-back-from-roadmap').addEventListener('click', () => showScreen(mainMenu));
 
+document.querySelectorAll('.mode-opt').forEach((btn) => {
+    btn.addEventListener('click', () => setRules(btn.dataset.rules));
+});
+
 function leaveGame() {
     session += 1;
     phase = 'idle';
@@ -953,7 +1142,7 @@ document.addEventListener('pointerdown', () => sfx.unlock(), { passive: true });
 
 // Light click feedback on menu buttons (the dice and roll button have their own sound)
 document.addEventListener('click', (event) => {
-    const target = event.target.closest('.btn, .roadmap-node, .link-btn');
+    const target = event.target.closest('.btn, .roadmap-node, .link-btn, .mode-opt');
     if (target && target.id !== 'btn-roll' && target.id !== 'btn-sound') sfx.click();
 });
 
@@ -966,9 +1155,11 @@ function setConsent(value) {
     if (value === 'all') {
         saveProgress();
         store.set(SOUND_KEY, soundOn ? 'on' : 'off');
+        store.set(RULES_KEY, rulesKey);
     } else {
         store.remove(PROGRESS_KEY);
         store.remove(SOUND_KEY);
+        store.remove(RULES_KEY);
     }
     banner.classList.add('hidden');
 }
@@ -1041,3 +1232,4 @@ renderSoundButton();
 buildBoard();
 buildDice();
 renderDice(1);
+applyRulesUI();
