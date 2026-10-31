@@ -8,6 +8,7 @@ A classic Ludo game that runs in your browser. Play against the computer, pass t
 
 ## Features
 
+- **Two rule sets:** pick **Africa Ludo** (local rules) or **Foreign Ludo** (classic rules) on the menu. See [Game modes](#game-modes).
 - **Classic board:** bright flat colours, star safe squares, coloured home columns, entry arrows and a four-triangle centre.
 - **Play vs Computer:** three computer opponents that get smarter as you climb the milestone levels.
 - **Pass & Play:** 2–4 players sharing one device.
@@ -27,6 +28,21 @@ A classic Ludo game that runs in your browser. Play against the computer, pass t
 4. Land on an opponent's token (off a safe square) to **send it back to base**.
 5. A **6**, a **capture**, or getting a token **home** gives you another roll.
 6. The first player to bring all four tokens to the centre wins. The game carries on until 1st, 2nd and 3rd place are decided.
+
+## Game modes
+
+**Foreign Ludo** uses the classic rules described above: safe star squares, one lap around the board, then up your home column.
+
+**Africa Ludo** changes the rules like this:
+
+| Rule | What happens |
+|---|---|
+| No safe squares | Different colours never share a square. Landing on an opponent, even on a star or a start square, sends them back to base. |
+| Walls | Two or more tokens of one colour on a square form a wall. Opponents can't pass it or land on it. Your own tokens can pass your own wall. A wall can't be captured. |
+| Backward capture | Instead of moving forward, a token may move backwards by the dice number, but only if it lands on a lone opponent token. The opponent goes to base and the capturing token goes straight home. |
+| Home-lane capture | With the exact roll, a token on the track can step into another colour's home lane and capture a token there. The opponent goes to base and the capturing token goes straight home. |
+
+If a roll gives you more than one choice, tap a glowing token to move it forward, or tap the red-ringed opponent token to capture it.
 
 ## Run it locally
 
@@ -65,6 +81,7 @@ Then open `http://localhost:8000`. Service workers work on `localhost`, so you c
 
 - **Board:** a 15×15 grid. The 52-square shared track, the four home columns and the base slots are defined as coordinate lists in `index.js`, and tokens are positioned by percentage so the board scales cleanly.
 - **Token positions:** `-1` is in base, `0–50` is the shared track, `51–55` is the home column, and `56` is home.
+- **Rule sets:** the `RULES` object in `index.js` holds the switches for each mode (`safeSquares`, `blocks`, `backCapture`, `laneCapture`), so new local variants can be added by turning rules on or off.
 - **Turn flow:** a small state machine (`roll → rolling → move → animating`) with a session counter, so quitting or restarting a game safely cancels any pending animation or computer move.
 - **Computer player:** scores each possible move (finishing, capturing, leaving base, landing on safe squares, escaping danger) and picks the best one more often at higher levels.
 
