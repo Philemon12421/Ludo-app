@@ -1254,6 +1254,123 @@ button,
     }
 }
 
+/* ---------- Game mode picker (Africa / Foreign) ---------- */
+.mode-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.28);
+}
+
+.mode-opt {
+    font: inherit;
+    font-weight: 800;
+    font-size: 0.95rem;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 11px;
+    padding: 10px 6px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-opt.active {
+    color: #3a2a00;
+    background: linear-gradient(#ffd54f, #ffb300);
+    box-shadow: 0 2px 0 #b57f00;
+}
+
+.mode-desc {
+    color: var(--muted);
+    font-size: 0.86rem;
+    line-height: 1.45;
+    text-align: center;
+    min-height: 3.9em;
+    margin: -2px 2px 0;
+}
+
+.rules .rules-title {
+    margin-top: 12px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.rules-badge {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    padding: 5px 10px;
+    white-space: nowrap;
+}
+
+/* Africa rules: no safe squares, so hide the star and start markers */
+.ludo-board.no-safe .cell.star::after,
+.ludo-board.no-safe .cell.start::after {
+    content: none;
+}
+
+/* A token that can be captured by the roll the player just got */
+.token.target {
+    cursor: pointer;
+    z-index: 10;
+    animation: target-pulse 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes target-pulse {
+    from {
+        transform: translate(-50%, -50%) scale(1);
+        box-shadow:
+            0 0 0 calc(var(--cell) * 0.05) #ff3b30,
+            0 0 0 calc(var(--cell) * 0.12) rgba(255, 59, 48, 0.35),
+            inset 0 0 0 calc(var(--cell) * 0.07) #fff;
+    }
+    to {
+        transform: translate(-50%, -50%) scale(1.22);
+        box-shadow:
+            0 0 0 calc(var(--cell) * 0.07) #ff3b30,
+            0 0 0 calc(var(--cell) * 0.2) rgba(255, 59, 48, 0.45),
+            inset 0 0 0 calc(var(--cell) * 0.07) #fff;
+    }
+}
+
+/* Two or more tokens of one colour on a square form a wall */
+.token.in-block {
+    outline: calc(var(--cell) * 0.07) solid #1b1740;
+    outline-offset: calc(var(--cell) * 0.02);
+}
+
+.token.block-lead::after {
+    content: attr(data-stack);
+    position: absolute;
+    top: -26%;
+    right: -26%;
+    width: calc(var(--cell) * 0.5);
+    height: calc(var(--cell) * 0.5);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: calc(var(--cell) * 0.34);
+    font-weight: 800;
+    line-height: 1;
+    color: #fff;
+    background: #1b1740;
+    box-shadow: 0 0 0 calc(var(--cell) * 0.04) #fff;
+}
+
+@media (max-width: 640px) {
+    .rules-badge {
+        display: none;
+    }
+}
+
 /* ---------- Splash screen (3D tumbling dice) ---------- */
 .splash {
     position: fixed;
