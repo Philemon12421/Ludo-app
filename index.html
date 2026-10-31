@@ -78,6 +78,11 @@
             <p class="tagline">The classic race around the board. Roll a 6 to get started.</p>
 
             <div class="menu-card">
+                <div class="mode-switch" role="radiogroup" aria-label="Game rules">
+                    <button class="mode-opt" type="button" role="radio" aria-checked="true" data-rules="africa">🌍 Africa Ludo</button>
+                    <button class="mode-opt" type="button" role="radio" aria-checked="false" data-rules="classic">Foreign Ludo</button>
+                </div>
+                <p id="mode-desc" class="mode-desc"></p>
                 <button id="btn-offline" class="btn btn-primary btn-lg" type="button">Play vs Computer</button>
                 <button id="btn-local" class="btn btn-green btn-lg" type="button">Pass &amp; Play (2–4 players)</button>
                 <button id="btn-online" class="btn btn-blue btn-lg" type="button">Online Match <span class="badge">Soon</span></button>
@@ -93,6 +98,13 @@
                     <li>Land on an opponent off a safe square to send them back to base.</li>
                     <li>A 6, a capture, or getting a token home gives you another roll.</li>
                     <li>First to bring all four tokens to the centre wins. The game goes on until every place is decided.</li>
+                </ul>
+                <p class="rules-africa rules-title">Africa Ludo changes these rules:</p>
+                <ul class="rules-africa">
+                    <li>There are no safe squares. Different colours can never share a square, so landing on an opponent always sends them home.</li>
+                    <li>Two or more tokens of your colour on one square make a wall. Opponents can't pass it or land on it until you split it.</li>
+                    <li>Instead of moving forward, you may move a token backwards by your roll, but only if it lands on an opponent. That token then goes straight home.</li>
+                    <li>With the exact roll, you can enter another colour's home lane and capture a token there. Your token then goes straight home.</li>
                 </ul>
             </details>
         </section>
@@ -122,6 +134,7 @@
             <div class="game-layout">
                 <div class="game-topbar">
                     <button id="btn-back-to-menu" class="btn btn-ghost btn-sm" type="button">Quit</button>
+                    <span id="rules-badge" class="rules-badge"></span>
                     <div id="turn-indicator" aria-live="polite"><span class="dot"></span><span class="turn-text">Red's turn</span></div>
                 </div>
 
@@ -182,11 +195,11 @@
     <div id="cookie-banner" class="cookie hidden" role="dialog" aria-labelledby="cookie-title" aria-describedby="cookie-desc">
         <div class="cookie-text">
             <strong id="cookie-title">Cookies &amp; local storage</strong>
-            <span id="cookie-desc">Ludoka uses a little storage on your device to keep the game working. If you allow it, we'll also remember your milestone progress and sound setting. No ads, no tracking.</span>
+            <span id="cookie-desc">Ludoka uses a little storage on your device to keep the game working. If you allow it, we'll also remember your milestone progress, sound and game-mode choice. No ads, no tracking.</span>
             <details>
                 <summary>More details</summary>
                 <p><b>Essential:</b> your choice on this banner and the offline cache that lets the game run without a connection.<br>
-                <b>Optional (Accept):</b> saves your unlocked milestone level and your sound on/off choice in this browser.<br>
+                <b>Optional (Accept):</b> saves your unlocked milestone level, your sound on/off choice and your chosen game mode in this browser.<br>
                 Nothing is sent to us or to third parties. Choose "Essential only" and the game works the same, but progress isn't saved between visits. You can change your mind any time from "Cookie settings" in the footer.</p>
             </details>
         </div>
