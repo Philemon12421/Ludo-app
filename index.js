@@ -248,7 +248,7 @@ const RULES = {
     },
     africa: {
         name: 'Africa Ludo',
-        desc: 'No safe squares. Two tokens of a colour form a wall nobody can pass. Capture backwards, or inside a home lane, and your token goes straight home.',
+        desc: 'No safe squares. Two tokens on a square form a wall nobody can pass. Move backwards to capture an opponent, or capture one inside a home lane and go straight home.',
         safeSquares: false,
         blocks: true,
         backCapture: true,
@@ -264,7 +264,8 @@ const isSafe = (ringIdx) => rules.safeSquares && SAFE.has(ringIdx);
 /* ---------- Game state ---------- */
 const tokens = {};
 COLORS.forEach((color) => {
-    tokens[color] = [0, 1, 2, 3].map((i) => ({ id: `${color[0]}${i + 1}`, pos: -1, vis: null }));
+    // edge: true marks a token standing on the track square just behind its own start (reached by a backward capture)
+    tokens[color] = [0, 1, 2, 3].map((i) => ({ id: `${color[0]}${i + 1}`, pos: -1, vis: null, edge: false }));
 });
 
 let mode = null;          // 'offline' (vs computer) | 'local' (pass & play)
@@ -360,12 +361,27 @@ function ringIndex(color, pos) {
 
 const ringPoint = (idx) => [RING[idx][0] + 0.5, RING[idx][1] + 0.5];
 
+// The track square a token stands on (null when it is in base, in a home lane or home)
+function tokenRing(color, t) {
+    if (t.pos === RING_END && t.edge) return (START[color] + 51) % 52;   // the square just behind its start
+    return ringIndex(color, t.pos);
+}
+
+// Identifies where a token stands, so tokens on the same spot count as one choice
+const locKey = (t) => `${t.pos}${t.edge ? 'e' : ''}`;
+
+function sendHome(t) {
+    t.pos = -1;
+    t.edge = false;
+    t.vis = null;
+}
+
 // Point (in cell units) where a token should be drawn
-function pointFor(color, index, pos) {
-    if (pos === -1) return BASE_SLOTS[color][index];
-    if (pos <= RING_END) return ringPoint(ringIndex(color, pos));
-    if (pos < FINISH) {
-        const [x, y] = HOME_COLUMN[color][pos - 51];
+function pointFor(color, index, t) {
+    if (t.pos === -1) return BASE_SLOTS[color][index];
+    if (t.pos <= RING_END) return ringPoint(tokenRing(color, t));
+    if (t.pos < FINISH) {
+        const [x, y] = HOME_COLUMN[color][t.pos - 51];
         return [x + 0.5, y + 0.5];
     }
     return FINISH_POINT[color];
@@ -376,7 +392,7 @@ function updateBoard() {
     const groups = new Map();
     COLORS.forEach((color) => {
         tokens[color].forEach((t, i) => {
-            const [px, py] = t.vis || pointFor(color, i, t.pos);
+            const [px, py] = t.vis || pointFor(color, i, t);
             let key;
             if (t.vis) key = `${px},${py}`;
             else if (t.pos === -1) key = `base-${t.id}`;
@@ -389,9 +405,6 @@ function updateBoard() {
 
     groups.forEach((members, key) => {
         const n = members.length;
-        // two or more tokens of one colour on a track square = a block (Africa rules)
-        const isBlock = rules.blocks && n >= 2 && !key.startsWith('base-') && !key.startsWith('fin-')
-            && members.every((m) => m.color === members[0].color);
         members.forEach((m, k) => {
             let ox = 0;
             let oy = 0;
@@ -412,21 +425,18 @@ function updateBoard() {
             const node = tokenEls[t.id];
             node.style.left = `${((m.px + ox) / GRID) * 100}%`;
             node.style.top = `${((m.py + oy) / GRID) * 100}%`;
-            node.classList.toggle('in-block', isBlock);
-            node.classList.toggle('block-lead', isBlock && k === 0);
-            if (isBlock && k === 0) node.dataset.stack = String(n);
         });
     });
 
     // Which tokens can be clicked right now
     const color = COLORS[current];
     const canAct = phase === 'move' && isHuman(current);
-    const fwdFrom = new Set(options.filter((o) => o.kind === 'fwd').map((o) => o.fromPos));
+    const fwdFrom = new Set(options.filter((o) => o.kind === 'fwd').map((o) => o.fromKey));
     const targets = new Set(options.filter((o) => o.victim).map((o) => `${o.victim.c}:${o.victim.i}`));
     COLORS.forEach((c) => {
         tokens[c].forEach((t, i) => {
             const node = tokenEls[t.id];
-            const movable = canAct && c === color && fwdFrom.has(t.pos);
+            const movable = canAct && c === color && fwdFrom.has(locKey(t));
             const target = canAct && targets.has(`${c}:${i}`);
             node.disabled = !(movable || target);
             node.classList.toggle('movable', movable);
@@ -550,7 +560,7 @@ function oppTokensAt(color, ringIdx) {
     COLORS.forEach((c) => {
         if (c === color) return;
         tokens[c].forEach((t, i) => {
-            if (ringIndex(c, t.pos) === ringIdx) hits.push({ c, i, t });
+            if (tokenRing(c, t) === ringIdx) hits.push({ c, i, t });
         });
     });
     return hits;
@@ -585,7 +595,7 @@ function forwardTarget(color, token) {
 
 // Africa: moving backwards by the dice is only allowed if it lands on (and captures) a lone opponent
 function backVictim(color, token) {
-    const r = ringIndex(color, token.pos);
+    const r = tokenRing(color, token);
     if (r === null) return null;
     for (let k = 1; k < diceValue; k++) {
         if (oppBlockOnRing(color, (r - k + 52) % 52)) return null;   // can't pass over a wall
@@ -596,7 +606,7 @@ function backVictim(color, token) {
 
 // Africa: with the exact roll, a token can step into another colour's home lane and capture a token there
 function laneVictim(color, token) {
-    const r = ringIndex(color, token.pos);
+    const r = tokenRing(color, token);
     if (r === null) return null;
     for (const c2 of COLORS) {
         if (c2 === color) continue;
@@ -619,6 +629,15 @@ function laneVictim(color, token) {
     return null;
 }
 
+// Where a token ends up after a backward capture: it takes the captured token's square.
+// Going back past its own start puts it near the end of its lap, so it is close to home.
+function backLanding(color, token) {
+    const ring = (tokenRing(color, token) - diceValue + 52) % 52;
+    const pos = (ring - START[color] + 52) % 52;
+    if (pos <= RING_END) return { pos, edge: false };
+    return { pos: RING_END, edge: true };   // the square just behind its own start
+}
+
 // All the different moves the current dice gives this colour
 function listMoves(color) {
     const list = [];
@@ -631,15 +650,16 @@ function listMoves(color) {
     };
     tokens[color].forEach((t, i) => {
         const to = forwardTarget(color, t);
-        if (to !== null) add(`f${t.pos}`, { kind: 'fwd', ti: i, fromPos: t.pos, to });
+        const fromKey = locKey(t);
+        if (to !== null) add(`f${fromKey}`, { kind: 'fwd', ti: i, fromPos: t.pos, fromKey, to });
         if (t.pos >= 0 && t.pos <= RING_END) {
             if (rules.backCapture) {
                 const v = backVictim(color, t);
-                if (v) add(`b${t.pos}`, { kind: 'back', ti: i, fromPos: t.pos, victim: v });
+                if (v) add(`b${fromKey}`, { kind: 'back', ti: i, fromPos: t.pos, fromKey, victim: v });
             }
             if (rules.laneCapture) {
                 const v = laneVictim(color, t);
-                if (v) add(`l${t.pos}${v.c}`, { kind: 'lane', ti: i, fromPos: t.pos, victim: v, dist: v.dist, lane: v.lane });
+                if (v) add(`l${fromKey}${v.c}`, { kind: 'lane', ti: i, fromPos: t.pos, fromKey, victim: v, dist: v.dist, lane: v.lane });
             }
         }
     });
@@ -653,10 +673,10 @@ function wouldCapture(color, pos) {
 }
 
 function resolveCapture(color, token) {
-    const idx = ringIndex(color, token.pos);
+    const idx = tokenRing(color, token);
     if (idx === null || isSafe(idx)) return 0;
     const victims = oppTokensAt(color, idx);
-    victims.forEach((v) => { v.t.pos = -1; });
+    victims.forEach((v) => sendHome(v.t));
     return victims.length;
 }
 
@@ -664,7 +684,7 @@ function isThreatened(color, pos) {
     const idx = ringIndex(color, pos);
     if (idx === null || isSafe(idx)) return false;
     return COLORS.some((c) => c !== color && tokens[c].some((t) => {
-        const oi = ringIndex(c, t.pos);
+        const oi = tokenRing(c, t);
         if (oi === null) return false;
         const gap = (idx - oi + 52) % 52;
         return gap >= 1 && gap <= 6;
@@ -677,8 +697,13 @@ function progress(color) {
 
 /* ---------- Computer player ---------- */
 function scoreOption(color, o) {
-    if (o.kind !== 'fwd') return 200 + Math.random() * 5;   // a capture that sends the token straight home
+    if (o.kind === 'lane') return 200 + Math.random() * 5;   // a capture that sends the token straight home
     const t = tokens[color][o.ti];
+    if (o.kind === 'back') {
+        // a capture is good; going back past the start puts the token near home (bonus), going back along the lap costs progress
+        const land = backLanding(color, t);
+        return 85 + Math.max(-45, land.pos - t.pos) * 0.6 + Math.random() * 5;
+    }
     const to = o.to;
     let score = to * 0.3;
     if (to === FINISH) score += 100;
@@ -737,7 +762,7 @@ function startGame(newMode, level) {
     phase = 'idle';
     options = [];
     finished = [];
-    COLORS.forEach((c) => tokens[c].forEach((t) => { t.pos = -1; t.vis = null; }));
+    COLORS.forEach((c) => tokens[c].forEach(sendHome));
 
     winnerModal.classList.add('hidden');
     placeModal.classList.add('hidden');
@@ -836,7 +861,7 @@ function onTokenClick(color, i) {
     const t = tokens[color][i];
     let opt = null;
     if (color === COLORS[current]) {
-        opt = options.find((o) => o.kind === 'fwd' && o.fromPos === t.pos);
+        opt = options.find((o) => o.kind === 'fwd' && o.fromKey === locKey(t));
     } else {
         opt = options.find((o) => o.victim && o.victim.c === color && o.victim.i === i);
     }
@@ -865,6 +890,7 @@ async function doMove(opt) {
     let note = '';
 
     if (opt.kind === 'fwd') {
+        token.edge = false;
         if (token.pos === -1) {
             token.pos = 0;
             sfx.enter();
@@ -882,18 +908,22 @@ async function doMove(opt) {
         if (s !== session) return;
         captured = resolveCapture(color, token);
     } else if (opt.kind === 'back') {
-        const r0 = ringIndex(color, token.pos);
+        const r0 = tokenRing(color, token);
+        const land = backLanding(color, token);
         for (let k = 1; k <= diceValue; k++) {
             sfx.step(k);
             await hop(token, ringPoint((r0 - k + 52) % 52));
             if (s !== session) return;
         }
-        tokens[opt.victim.c][opt.victim.i].pos = -1;
+        sendHome(tokens[opt.victim.c][opt.victim.i]);
+        // the token keeps the captured square and carries on with the dice from there
+        token.vis = null;
+        token.pos = land.pos;
+        token.edge = land.edge;
         captured = 1;
-        shortcut = true;
-        note = `${color} captured ${opt.victim.c} backwards and goes straight home!`;
+        note = `${color} captured ${opt.victim.c} backwards!`;
     } else {
-        const r0 = ringIndex(color, token.pos);
+        const r0 = tokenRing(color, token);
         for (let k = 1; k <= opt.dist; k++) {
             sfx.step(k);
             await hop(token, ringPoint((r0 + k) % 52));
@@ -905,7 +935,7 @@ async function doMove(opt) {
             await hop(token, [x + 0.5, y + 0.5]);
             if (s !== session) return;
         }
-        tokens[opt.victim.c][opt.victim.i].pos = -1;
+        sendHome(tokens[opt.victim.c][opt.victim.i]);
         captured = 1;
         shortcut = true;
         note = `${color} captured ${opt.victim.c} in their home lane and goes straight home!`;
