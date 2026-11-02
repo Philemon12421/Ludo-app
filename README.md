@@ -40,7 +40,7 @@ A classic Ludo game that runs in your browser. Play against the computer, pass t
 | No safe squares | Different colours never share a square. Landing on an opponent, even on a star or a start square, sends them back to base. |
 | Walls | Two or more tokens of one colour on a square form a wall. Opponents can't pass it or land on it. Your own tokens can pass your own wall. A wall can't be captured. |
 | Backward capture | Instead of moving forward, a token may move backwards by the dice number, but only if it lands on a lone opponent token. The opponent goes to base, and the capturing token keeps that square and carries on with the dice as normal. Going back past your own start puts the token near the end of its lap, close to home. |
-| Home-lane capture | With the exact roll, a token on the track can step into another colour's home lane and capture a token there. The opponent goes to base and the capturing token goes straight home. |
+| Home-lane capture | With the exact roll, a token on the track can step into another colour's home lane and capture a token there. The opponent goes to base, but the capturing token has not won: it stays in that lane as an intruder and, on its turns, must go back by the dice and out onto the track to continue its journey. The owner's tokens can send it to base by landing on it, or by moving back along their own lane onto it (exact roll), and then carry on as normal. |
 
 If a roll gives you more than one choice, tap a glowing token to move it forward, or tap the red-ringed opponent token to capture it.
 
