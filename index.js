@@ -248,7 +248,7 @@ const RULES = {
     },
     africa: {
         name: 'Africa Ludo',
-        desc: 'No safe squares. Two tokens on a square form a wall nobody can pass. Move backwards to capture an opponent, or capture one inside a home lane and go straight home.',
+        desc: 'No safe squares. Two tokens on a square form a wall nobody can pass. Move backwards to capture an opponent, or capture one inside a home lane (you then have to go back and carry on).',
         safeSquares: false,
         blocks: true,
         backCapture: true,
@@ -1027,7 +1027,46 @@ async function doMove(opt) {
         token.edge = land.edge;
         captured = 1;
         note = `${color} captured ${opt.victim.c} backwards!`;
+    } else if (opt.kind === 'backlane') {
+        // an owner token moves back along its own home lane to remove an intruder, then plays on from that square
+        const to = opt.victim.lane;
+        for (let l = token.pos - 51; l >= to; l--) {
+            sfx.step(l);
+            const [x, y] = HOME_COLUMN[color][l - 1];
+            await hop(token, [x + 0.5, y + 0.5]);
+            if (s !== session) return;
+        }
+        sendHome(tokens[opt.victim.c][opt.victim.i]);
+        token.vis = null;
+        token.pos = 50 + to;
+        captured = 1;
+        note = `${color} moved back and removed ${opt.victim.c} from their home lane!`;
+    } else if (opt.kind === 'out') {
+        // an intruder retreats by the dice, back along the lane and out onto the track
+        for (const sq of opt.back.squares) {
+            sfx.step(1);
+            const point = sq.type === 'lane'
+                ? (([x, y]) => [x + 0.5, y + 0.5])(HOME_COLUMN[opt.back.host][sq.lane - 1])
+                : ringPoint(sq.ring);
+            await hop(token, point);
+            if (s !== session) return;
+        }
+        if (opt.back.victim) {
+            sendHome(tokens[opt.back.victim.c][opt.back.victim.i]);
+            captured = 1;
+            note = `${color} captured ${opt.back.victim.c} while retreating!`;
+        }
+        token.vis = null;
+        const dest = opt.back.dest;
+        if (dest.type === 'lane') {
+            token.foreign = { c: opt.back.host, lane: dest.lane };
+        } else {
+            token.foreign = null;
+            token.pos = dest.pos;
+            token.edge = dest.edge;
+        }
     } else {
+        // lane capture: the token takes the square but has not won; it is now an intruder in that lane
         const r0 = tokenRing(color, token);
         for (let k = 1; k <= opt.dist; k++) {
             sfx.step(k);
@@ -1036,14 +1075,17 @@ async function doMove(opt) {
         }
         for (let l = 1; l <= opt.lane; l++) {
             sfx.step(opt.dist + l);
-            const [x, y] = HOME_COLUMN[opt.victim.c][l - 1];
+            const [x, y] = HOME_COLUMN[opt.host][l - 1];
             await hop(token, [x + 0.5, y + 0.5]);
             if (s !== session) return;
         }
         sendHome(tokens[opt.victim.c][opt.victim.i]);
+        token.vis = null;
+        token.pos += opt.dist;
+        token.edge = false;
+        token.foreign = { c: opt.host, lane: opt.lane };
         captured = 1;
-        shortcut = true;
-        note = `${color} captured ${opt.victim.c} in their home lane and goes straight home!`;
+        note = `${color} captured ${opt.victim.c} in ${opt.host}'s home lane, but must now go back and carry on.`;
     }
 
     if (captured) {
