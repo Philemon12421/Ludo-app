@@ -265,7 +265,9 @@ const isSafe = (ringIdx) => rules.safeSquares && SAFE.has(ringIdx);
 const tokens = {};
 COLORS.forEach((color) => {
     // edge: true marks a token standing on the track square just behind its own start (reached by a backward capture)
-    tokens[color] = [0, 1, 2, 3].map((i) => ({ id: `${color[0]}${i + 1}`, pos: -1, vis: null, edge: false }));
+    // foreign: { c, lane } marks an intruder standing in another colour's home lane (Africa rules); its pos is then
+    // its route position at that lane's entrance
+    tokens[color] = [0, 1, 2, 3].map((i) => ({ id: `${color[0]}${i + 1}`, pos: -1, vis: null, edge: false, foreign: null }));
 });
 
 let mode = null;          // 'offline' (vs computer) | 'local' (pass & play)
@@ -363,21 +365,27 @@ const ringPoint = (idx) => [RING[idx][0] + 0.5, RING[idx][1] + 0.5];
 
 // The track square a token stands on (null when it is in base, in a home lane or home)
 function tokenRing(color, t) {
+    if (t.foreign) return null;                                           // inside another colour's home lane
     if (t.pos === RING_END && t.edge) return (START[color] + 51) % 52;   // the square just behind its start
     return ringIndex(color, t.pos);
 }
 
 // Identifies where a token stands, so tokens on the same spot count as one choice
-const locKey = (t) => `${t.pos}${t.edge ? 'e' : ''}`;
+const locKey = (t) => (t.foreign ? `${t.pos}F${t.foreign.c}${t.foreign.lane}` : `${t.pos}${t.edge ? 'e' : ''}`);
 
 function sendHome(t) {
     t.pos = -1;
     t.edge = false;
+    t.foreign = null;
     t.vis = null;
 }
 
 // Point (in cell units) where a token should be drawn
 function pointFor(color, index, t) {
+    if (t.foreign) {
+        const [fx, fy] = HOME_COLUMN[t.foreign.c][t.foreign.lane - 1];
+        return [fx + 0.5, fy + 0.5];
+    }
     if (t.pos === -1) return BASE_SLOTS[color][index];
     if (t.pos <= RING_END) return ringPoint(tokenRing(color, t));
     if (t.pos < FINISH) {
@@ -431,7 +439,7 @@ function updateBoard() {
     // Which tokens can be clicked right now
     const color = COLORS[current];
     const canAct = phase === 'move' && isHuman(current);
-    const fwdFrom = new Set(options.filter((o) => o.kind === 'fwd').map((o) => o.fromKey));
+    const fwdFrom = new Set(options.filter((o) => o.kind === 'fwd' || o.kind === 'out').map((o) => o.fromKey));
     const targets = new Set(options.filter((o) => o.victim).map((o) => `${o.victim.c}:${o.victim.i}`));
     COLORS.forEach((c) => {
         tokens[c].forEach((t, i) => {
@@ -441,14 +449,16 @@ function updateBoard() {
             node.disabled = !(movable || target);
             node.classList.toggle('movable', movable);
             node.classList.toggle('target', target);
-            node.setAttribute('aria-label', tokenLabel(c, i, t.pos, movable, target));
+            node.setAttribute('aria-label', tokenLabel(c, i, t, movable, target));
         });
     });
 }
 
-function tokenLabel(color, i, pos, movable, target) {
+function tokenLabel(color, i, t, movable, target) {
+    const pos = t.pos;
     let where = 'on the board';
-    if (pos === -1) where = 'in base';
+    if (t.foreign) where = `in ${t.foreign.c}'s home lane`;
+    else if (pos === -1) where = 'in base';
     else if (pos === FINISH) where = 'home';
     else if (pos > RING_END) where = 'in the home column';
     const extra = target ? ', can be captured' : movable ? ', can move' : '';
@@ -576,8 +586,36 @@ function oppBlockOnRing(color, ringIdx) {
     });
 }
 
+// Everything standing on one square of a colour's home lane: its own tokens plus any intruders (Africa rules)
+function laneOccupants(host, lane) {
+    const res = [];
+    tokens[host].forEach((t, i) => {
+        if (t.pos === 50 + lane && !t.foreign) res.push({ c: host, i, t });
+    });
+    COLORS.forEach((c) => {
+        if (c === host) return;
+        tokens[c].forEach((t, i) => {
+            if (t.foreign && t.foreign.c === host && t.foreign.lane === lane) res.push({ c, i, t });
+        });
+    });
+    return res;
+}
+
+const oppLaneOccupants = (color, host, lane) => laneOccupants(host, lane).filter((o) => o.c !== color);
+
+// A wall inside a home lane: two or more tokens of one other colour on the same lane square
+function oppLaneWall(color, host, lane) {
+    if (!rules.blocks) return false;
+    const counts = {};
+    return oppLaneOccupants(color, host, lane).some(({ c }) => {
+        counts[c] = (counts[c] || 0) + 1;
+        return counts[c] >= 2;
+    });
+}
+
 // Position a token would reach by moving forward by the dice, or null if it can't
 function forwardTarget(color, token) {
+    if (token.foreign) return null;   // a token inside someone else's home lane can only retreat
     if (token.pos === -1) {
         if (diceValue !== 6) return null;
         if (oppBlockOnRing(color, START[color])) return null;
@@ -587,7 +625,11 @@ function forwardTarget(color, token) {
     if (target > FINISH) return null;
     if (rules.blocks) {
         for (let q = token.pos + 1; q <= target; q++) {
-            if (q <= RING_END && oppBlockOnRing(color, ringIndex(color, q))) return null;
+            if (q <= RING_END) {
+                if (oppBlockOnRing(color, ringIndex(color, q))) return null;
+            } else if (q < FINISH && oppLaneWall(color, color, q - 50)) {
+                return null;   // an intruder wall in your own lane
+            }
         }
     }
     return target;
@@ -604,13 +646,14 @@ function backVictim(color, token) {
     return hits.length === 1 ? { c: hits[0].c, i: hits[0].i } : null;
 }
 
-// Africa: with the exact roll, a token can step into another colour's home lane and capture a token there
+// Africa: with the exact roll, a token can step into another colour's home lane and capture a token there.
+// It does not win by doing so: it is then an intruder in that lane and has to retreat.
 function laneVictim(color, token) {
     const r = tokenRing(color, token);
     if (r === null) return null;
-    for (const c2 of COLORS) {
-        if (c2 === color) continue;
-        const dist = (LANE_ENTRY[c2] - r + 52) % 52;      // track squares to the lane entrance
+    for (const host of COLORS) {
+        if (host === color) continue;
+        const dist = (LANE_ENTRY[host] - r + 52) % 52;    // track squares to the lane entrance
         if (token.pos + dist > RING_END) continue;        // that entrance is not on this token's route
         const lane = diceValue - dist;                     // which lane square the roll lands on (1..5)
         if (lane < 1 || lane > 5) continue;
@@ -620,13 +663,56 @@ function laneVictim(color, token) {
         }
         if (blocked) continue;
         for (let l = 1; l < lane; l++) {                   // a wall inside the lane stops the way
-            if (tokens[c2].filter((t) => t.pos === 50 + l).length >= 2) { blocked = true; break; }
+            if (oppLaneWall(color, host, l)) { blocked = true; break; }
         }
         if (blocked) continue;
-        const there = tokens[c2].map((t, i) => ({ t, i })).filter(({ t }) => t.pos === 50 + lane);
-        if (there.length === 1) return { c: c2, i: there[0].i, dist, lane };
+        const there = oppLaneOccupants(color, host, lane);
+        if (there.length === 1) return { c: there[0].c, i: there[0].i, host, dist, lane };
     }
     return null;
+}
+
+// Africa: a token in its own home lane may move back by the exact roll to remove an intruder standing behind it
+function backLaneVictim(color, token) {
+    if (token.foreign || token.pos <= RING_END || token.pos >= FINISH) return null;
+    const lane = token.pos - 50;
+    const to = lane - diceValue;
+    if (to < 1) return null;
+    for (let l = lane - 1; l > to; l--) {
+        if (oppLaneWall(color, color, l)) return null;
+    }
+    const there = oppLaneOccupants(color, color, to);
+    return there.length === 1 ? { c: there[0].c, i: there[0].i, lane: to } : null;
+}
+
+// Africa: an intruder in another colour's home lane moves backwards by the dice, along the lane and out onto the track
+function intruderBack(color, token) {
+    const host = token.foreign.c;
+    const j = token.foreign.lane;
+    const entry = LANE_ENTRY[host];
+    const squares = [];
+    for (let k = 1; k <= diceValue; k++) {
+        if (k < j) squares.push({ type: 'lane', lane: j - k });
+        else if (k === j) squares.push({ type: 'ring', ring: entry });
+        else squares.push({ type: 'ring', ring: (entry - (k - j) + 52) % 52 });
+    }
+    for (let k = 0; k < squares.length - 1; k++) {
+        const sq = squares[k];
+        const walled = sq.type === 'lane' ? oppLaneWall(color, host, sq.lane) : oppBlockOnRing(color, sq.ring);
+        if (walled) return null;
+    }
+    const last = squares[squares.length - 1];
+    const there = last.type === 'lane' ? oppLaneOccupants(color, host, last.lane) : oppTokensAt(color, last.ring);
+    if (there.length >= 2) return null;
+    const victim = there.length === 1 ? { c: there[0].c, i: there[0].i } : null;
+    let dest;
+    if (last.type === 'lane') {
+        dest = { type: 'lane', lane: last.lane };
+    } else {
+        const pos = (last.ring - START[color] + 52) % 52;
+        dest = pos <= RING_END ? { type: 'ring', pos, edge: false } : { type: 'ring', pos: RING_END, edge: true };
+    }
+    return { squares, dest, victim, host };
 }
 
 // Where a token ends up after a backward capture: it takes the captured token's square.
@@ -651,7 +737,17 @@ function listMoves(color) {
     tokens[color].forEach((t, i) => {
         const to = forwardTarget(color, t);
         const fromKey = locKey(t);
+        if (t.foreign) {
+            // an intruder can only retreat
+            const ib = rules.laneCapture ? intruderBack(color, t) : null;
+            if (ib) add(`o${fromKey}`, { kind: 'out', ti: i, fromPos: t.pos, fromKey, back: ib, victim: ib.victim });
+            return;
+        }
         if (to !== null) add(`f${fromKey}`, { kind: 'fwd', ti: i, fromPos: t.pos, fromKey, to });
+        if (rules.backCapture && t.pos > RING_END && t.pos < FINISH) {
+            const v = backLaneVictim(color, t);
+            if (v) add(`bl${fromKey}`, { kind: 'backlane', ti: i, fromPos: t.pos, fromKey, victim: v });
+        }
         if (t.pos >= 0 && t.pos <= RING_END) {
             if (rules.backCapture) {
                 const v = backVictim(color, t);
@@ -659,7 +755,7 @@ function listMoves(color) {
             }
             if (rules.laneCapture) {
                 const v = laneVictim(color, t);
-                if (v) add(`l${fromKey}${v.c}`, { kind: 'lane', ti: i, fromPos: t.pos, fromKey, victim: v, dist: v.dist, lane: v.lane });
+                if (v) add(`l${fromKey}${v.host}`, { kind: 'lane', ti: i, fromPos: t.pos, fromKey, victim: v, host: v.host, dist: v.dist, lane: v.lane });
             }
         }
     });
@@ -673,6 +769,12 @@ function wouldCapture(color, pos) {
 }
 
 function resolveCapture(color, token) {
+    if (!token.foreign && token.pos > RING_END && token.pos < FINISH) {
+        // moving forward onto an intruder standing in your own home lane
+        const intruders = oppLaneOccupants(color, color, token.pos - 50);
+        intruders.forEach((v) => sendHome(v.t));
+        return intruders.length;
+    }
     const idx = tokenRing(color, token);
     if (idx === null || isSafe(idx)) return 0;
     const victims = oppTokensAt(color, idx);
@@ -697,7 +799,9 @@ function progress(color) {
 
 /* ---------- Computer player ---------- */
 function scoreOption(color, o) {
-    if (o.kind === 'lane') return 200 + Math.random() * 5;   // a capture that sends the token straight home
+    if (o.kind === 'lane') return 120 + Math.random() * 5;       // removes an opponent from its home lane
+    if (o.kind === 'backlane') return 150 + Math.random() * 5;   // removes an intruder from our own home lane
+    if (o.kind === 'out') return 40 + (o.victim ? 90 : 0) + Math.random() * 5;   // retreat from a foreign lane
     const t = tokens[color][o.ti];
     if (o.kind === 'back') {
         // a capture is good; going back past the start puts the token near home (bonus), going back along the lap costs progress
@@ -708,6 +812,7 @@ function scoreOption(color, o) {
     let score = to * 0.3;
     if (to === FINISH) score += 100;
     if (wouldCapture(color, to)) score += 90;
+    if (to > RING_END && to < FINISH && oppLaneOccupants(color, color, to - 50).length) score += 90;
     if (t.pos === -1) score += 60;
     if (to > RING_END && to < FINISH) score += 35;
     const idx = ringIndex(color, to);
@@ -861,7 +966,7 @@ function onTokenClick(color, i) {
     const t = tokens[color][i];
     let opt = null;
     if (color === COLORS[current]) {
-        opt = options.find((o) => o.kind === 'fwd' && o.fromKey === locKey(t));
+        opt = options.find((o) => (o.kind === 'fwd' || o.kind === 'out') && o.fromKey === locKey(t));
     } else {
         opt = options.find((o) => o.victim && o.victim.c === color && o.victim.i === i);
     }
